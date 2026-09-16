@@ -1,102 +1,114 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  Search, 
-  Plus, 
-  Minus, 
-  Trash2, 
-  ShoppingBag, 
-  Tag, 
-  CreditCard, 
-  AlertCircle,
+import {
+  Search,
+  Plus,
+  Minus,
+  Trash2,
+  ShoppingCart,
+  CreditCard,
   X,
-  Percent,
-  CheckCircle2,
-  PackageOpen
+  PackageOpen,
+  Wrench
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatRupiah } from '../utils/formatters';
 
 export default function PosTerminal() {
-  const { 
-    products, 
-    categories, 
-    cart, 
-    addToCart, 
-    updateCartQty, 
-    removeFromCart, 
-    clearCart, 
-    cartDiscount, 
-    setCartDiscount, 
-    cartSubtotal, 
-    cartTax, 
-    cartTotal, 
+  const {
+    products,
+    categories,
+    cart,
+    addToCart,
+    updateCartQty,
+    removeFromCart,
+    clearCart,
+    cartDiscount,
+    discountType,
+    setDiscountType,
+    discountValue,
+    setDiscountValue,
+    cartSubtotal,
+    cartTax,
+    cartTotal,
     cartItemsCount,
     storeInfo,
-    setIsPaymentModalOpen 
+    setIsPaymentModalOpen
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
-  const [discountType, setDiscountType] = useState('nominal'); // 'nominal' | 'percent'
-  const [discountInput, setDiscountInput] = useState('');
 
   // Filter products by category and search
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       const matchCat = selectedCategory === 'all' || p.categoryId === selectedCategory;
-      const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           (p.barcode && p.barcode.includes(searchQuery));
       return matchCat && matchSearch;
     });
   }, [products, selectedCategory, searchQuery]);
 
-  const handleApplyDiscount = () => {
-    const val = Number(discountInput) || 0;
-    if (discountType === 'percent') {
-      const nominal = Math.round((cartSubtotal * Math.min(100, Math.max(0, val))) / 100);
-      setCartDiscount(nominal);
-    } else {
-      setCartDiscount(Math.min(cartSubtotal, Math.max(0, val)));
-    }
+  const handleResetDiscount = () => {
+    setDiscountValue('');
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        {/* LEFT COLUMN: Product Catalog (7 or 8 cols) */}
+    <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 ${cart.length > 0 ? 'pb-28 lg:pb-8' : ''}`}>
+      {/* Banner halaman */}
+      <div className="a18-stripes-soft flex flex-col gap-4 rounded-3xl p-6 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-500">Kasir Showroom</span>
+          <h1 className="a18-heading mt-1 text-2xl sm:text-3xl">Kasir Aksesoris &amp; Perawatan</h1>
+          <p className="mt-1.5 max-w-xl text-sm text-neutral-400">
+            Transaksi cepat untuk oli, aki, ban, aksesoris, dan jasa showroom Auto18.
+          </p>
+        </div>
+        <div className="a18-pill shrink-0 px-5 py-3 text-center">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Keranjang</p>
+          <p className="font-display text-xl font-black text-white">{cartItemsCount} item</p>
+        </div>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+        {/* KOLOM KIRI: Katalog barang & jasa */}
         <div className="lg:col-span-7 xl:col-span-8 space-y-4">
-          
-          {/* Search bar & Category filter */}
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+
+          {/* Pencarian & filter kategori */}
+          <div className="a18-card p-4 space-y-3">
             <div className="relative">
-              <Search className="w-5 h-5 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search className="w-5 h-5 absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none" aria-hidden="true" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Cari nama barang, kode SKU, atau scan barcode..."
-                className="w-full pl-11 pr-10 py-2.5 bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                placeholder="Cari oli, aki, ban, kode SKU, atau scan barcode..."
+                aria-label="Cari barang atau jasa"
+                className="a18-input pl-11 pr-10"
               />
               {searchQuery && (
-                <button 
+                <button
+                  type="button"
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                  aria-label="Hapus pencarian"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white p-1 transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
               )}
             </div>
 
-            {/* Category pills */}
-            <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
+            {/* Chip kategori */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
               <button
+                type="button"
                 onClick={() => setSelectedCategory('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                aria-pressed={selectedCategory === 'all'}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
                   selectedCategory === 'all'
-                    ? 'bg-slate-800 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    ? 'bg-brand-600 text-white'
+                    : 'bg-white/5 text-neutral-400 hover:bg-white/10 hover:text-white'
                 }`}
               >
                 Semua ({products.length})
@@ -107,11 +119,13 @@ export default function PosTerminal() {
                 return (
                   <button
                     key={cat.id}
+                    type="button"
                     onClick={() => setSelectedCategory(cat.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                    aria-pressed={isSelected}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
                       isSelected
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        ? 'bg-brand-600 text-white'
+                        : 'bg-white/5 text-neutral-400 hover:bg-white/10 hover:text-white'
                     }`}
                   >
                     {cat.name} ({count})
@@ -121,12 +135,14 @@ export default function PosTerminal() {
             </div>
           </div>
 
-          {/* Product Grid */}
+          {/* Grid produk */}
           {filteredProducts.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
-              <PackageOpen className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-              <h3 className="font-semibold text-slate-700">Produk Tidak Ditemukan</h3>
-              <p className="text-xs text-slate-500 mt-1">Coba gunakan kata kunci pencarian lain atau ganti filter kategori.</p>
+            <div className="a18-card p-12 text-center">
+              <PackageOpen className="w-12 h-12 text-neutral-700 mx-auto mb-3" aria-hidden="true" />
+              <h3 className="font-display font-black uppercase tracking-wide text-white">Barang Tidak Ditemukan</h3>
+              <p className="text-xs text-neutral-500 mt-1">
+                Coba kata kunci lain, misalnya "oli", "aki", atau "kaca film", atau ganti filter kategori.
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3.5">
@@ -136,206 +152,245 @@ export default function PosTerminal() {
                 const inCart = cart.find(c => c.id === product.id);
 
                 return (
-                  <div
+                  <button
                     key={product.id}
-                    onClick={() => !isOutOfStock && addToCart(product)}
-                    className={`group bg-white rounded-2xl border p-3.5 flex flex-col justify-between transition-all duration-150 relative select-none ${
-                      isOutOfStock 
-                        ? 'opacity-60 border-slate-200 bg-slate-50 cursor-not-allowed' 
-                        : 'border-slate-200/90 hover:border-emerald-500 hover:shadow-md cursor-pointer active:scale-[0.98]'
+                    type="button"
+                    disabled={isOutOfStock}
+                    onClick={() => addToCart(product)}
+                    aria-label={`Tambah ${product.name} ke keranjang`}
+                    className={`group a18-card p-3.5 flex flex-col justify-between text-left transition-colors ${
+                      isOutOfStock
+                        ? 'opacity-50 cursor-not-allowed'
+                        : 'hover:border-brand-600 active:scale-[0.98]'
                     }`}
                   >
-                    {/* Top badging */}
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] font-mono font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                    {/* Badge atas */}
+                    <div className="flex items-center justify-between gap-1 mb-2 overflow-hidden">
+                      <span className="text-[10px] font-mono text-neutral-500 bg-white/5 px-1.5 py-0.5 rounded truncate">
                         {product.sku}
                       </span>
                       {isOutOfStock ? (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-brand-500/40 bg-brand-600/20 text-brand-300">
                           Habis
                         </span>
                       ) : isLowStock ? (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 flex items-center space-x-1">
-                          <span>Sisa {product.stock}</span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/15 text-amber-300 whitespace-nowrap">
+                          Sisa {product.stock}
                         </span>
                       ) : (
-                        <span className="text-[10px] font-medium text-slate-500">
-                          Stok: {product.stock} {product.unit}
+                        <span className="text-[10px] text-neutral-500 whitespace-nowrap">
+                          Stok {product.stock} {product.unit}
                         </span>
                       )}
                     </div>
 
-                    {/* Product Name */}
-                    <div className="mb-3">
-                      <h4 className="font-semibold text-sm text-slate-800 group-hover:text-emerald-600 line-clamp-2 leading-snug">
+                    {/* Nama barang */}
+                    <div className="mb-3 flex-1">
+                      <span className="block font-bold text-sm text-white group-hover:text-brand-400 line-clamp-2 leading-snug transition-colors">
                         {product.name}
-                      </h4>
-                      <p className="text-[11px] text-slate-400 mt-0.5">{product.categoryName}</p>
+                      </span>
+                      <span className="block text-[11px] text-neutral-500 mt-0.5 truncate">{product.categoryName}</span>
                     </div>
 
-                    {/* Price & Add button */}
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                      <div>
-                        <span className="text-xs text-slate-400 block leading-none">Harga</span>
-                        <span className="font-bold text-sm text-slate-900">
+                    {/* Harga & tombol tambah */}
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
+                      <div className="min-w-0">
+                        <span className="text-[10px] uppercase tracking-wider text-neutral-500 block leading-none">Harga</span>
+                        <span className="font-bold text-sm text-white">
                           {formatRupiah(product.sellPrice)}
                         </span>
                       </div>
-                      
+
                       {inCart ? (
-                        <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shadow-xs">
+                        <span className="w-8 h-8 shrink-0 rounded-xl bg-brand-600 text-white font-black text-xs flex items-center justify-center">
                           {inCart.qty}
-                        </div>
+                        </span>
                       ) : (
-                        <div className="w-8 h-8 rounded-xl bg-slate-100 group-hover:bg-emerald-500 text-slate-600 group-hover:text-white flex items-center justify-center transition-colors">
-                          <Plus className="w-4 h-4" />
-                        </div>
+                        <span className="w-8 h-8 shrink-0 rounded-xl bg-white/5 text-neutral-300 group-hover:bg-brand-600 group-hover:text-white flex items-center justify-center transition-colors">
+                          <Plus className="w-4 h-4" aria-hidden="true" />
+                        </span>
                       )}
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
           )}
         </div>
 
-        {/* RIGHT COLUMN: Cart Sidebar (5 or 4 cols) */}
-        <div className="lg:col-span-5 xl:col-span-4 sticky top-20">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-md flex flex-col h-[calc(100vh-6.5rem)]">
-            
-            {/* Cart Header */}
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="p-2 rounded-xl bg-emerald-100 text-emerald-700">
-                  <ShoppingBag className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-800 text-base">Keranjang Kasir</h3>
-                  <p className="text-xs text-slate-400">{cartItemsCount} item dipilih</p>
+        {/* KOLOM KANAN: Keranjang kasir */}
+        <div className="lg:col-span-5 xl:col-span-4 lg:sticky lg:top-24">
+          <div className="a18-card flex flex-col lg:h-[calc(100vh-8rem)]">
+
+            {/* Header keranjang */}
+            <div className="p-4 border-b border-white/10 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="p-2 rounded-xl bg-brand-600/20 text-brand-400 border border-brand-500/30">
+                  <ShoppingCart className="w-5 h-5" aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="font-display font-black uppercase tracking-wide text-white text-base">Keranjang Kasir</h2>
+                  <p className="text-xs text-neutral-400">{cartItemsCount} item dipilih</p>
                 </div>
               </div>
               {cart.length > 0 && (
                 <button
+                  type="button"
                   onClick={clearCart}
-                  className="text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors flex items-center space-x-1"
+                  className="a18-btn-ghost shrink-0 px-2.5 py-1.5 text-xs text-neutral-400 hover:text-brand-400"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Kosongkan</span>
                 </button>
               )}
             </div>
 
-            {/* Cart Items List */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 divide-y divide-slate-100">
+            {/* Daftar item */}
+            <div className="flex-1 overflow-y-auto p-4 min-h-[8rem] lg:min-h-0">
               {cart.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
-                  <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-3 text-slate-300">
-                    <ShoppingBag className="w-8 h-8" />
+                <div className="h-full flex flex-col items-center justify-center text-center py-8">
+                  <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-3 text-neutral-600">
+                    <Wrench className="w-8 h-8" aria-hidden="true" />
                   </div>
-                  <p className="font-semibold text-slate-600">Keranjang Masih Kosong</p>
-                  <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                    Klik produk di katalog sebelah kiri untuk menambahkannya ke transaksi.
+                  <p className="font-bold text-white">Keranjang Masih Kosong</p>
+                  <p className="text-xs text-neutral-500 mt-1 max-w-xs">
+                    Pilih oli, aki, ban, aksesoris, atau jasa showroom di katalog untuk memulai transaksi.
                   </p>
                 </div>
               ) : (
-                cart.map(item => (
-                  <div key={item.id} className="pt-3 first:pt-0 flex items-center justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <h5 className="font-medium text-sm text-slate-800 truncate" title={item.name}>
-                        {item.name}
-                      </h5>
-                      <div className="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
-                        <span>{formatRupiah(item.price)}</span>
-                        <span>•</span>
-                        <span className="font-semibold text-slate-700">{formatRupiah(item.price * item.qty)}</span>
+                <div className="divide-y divide-white/10">
+                  {cart.map(item => (
+                    <div key={item.id} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <h5 className="font-semibold text-sm text-white truncate" title={item.name}>
+                          {item.name}
+                        </h5>
+                        <div className="flex items-center gap-2 text-xs text-neutral-500 mt-0.5">
+                          <span>{formatRupiah(item.price)}</span>
+                          <span aria-hidden="true">•</span>
+                          <span className="font-bold text-neutral-200">{formatRupiah(item.price * item.qty)}</span>
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Qty Controls */}
-                    <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl">
+                      {/* Kontrol jumlah */}
+                      <div className="flex items-center gap-1.5 bg-white/5 p-1 rounded-xl shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => updateCartQty(item.id, item.qty - 1)}
+                          aria-label={`Kurangi jumlah ${item.name}`}
+                          className="w-6 h-6 rounded-lg bg-ink-600 hover:bg-brand-600 text-white flex items-center justify-center transition-colors"
+                        >
+                          <Minus className="w-3 h-3" aria-hidden="true" />
+                        </button>
+                        <span className="w-7 text-center font-bold text-xs text-white">{item.qty}</span>
+                        <button
+                          type="button"
+                          onClick={() => updateCartQty(item.id, item.qty + 1)}
+                          aria-label={`Tambah jumlah ${item.name}`}
+                          className="w-6 h-6 rounded-lg bg-ink-600 hover:bg-brand-600 text-white flex items-center justify-center transition-colors"
+                        >
+                          <Plus className="w-3 h-3" aria-hidden="true" />
+                        </button>
+                      </div>
+
                       <button
-                        onClick={() => updateCartQty(item.id, item.qty - 1)}
-                        className="w-6 h-6 rounded-lg bg-white hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors shadow-2xs"
+                        type="button"
+                        onClick={() => removeFromCart(item.id)}
+                        className="p-1.5 shrink-0 text-neutral-500 hover:text-brand-400 rounded-lg transition-colors"
+                        title="Hapus item"
+                        aria-label={`Hapus ${item.name} dari keranjang`}
                       >
-                        <Minus className="w-3 h-3" />
-                      </button>
-                      <span className="w-7 text-center font-bold text-xs text-slate-800">{item.qty}</span>
-                      <button
-                        onClick={() => updateCartQty(item.id, item.qty + 1)}
-                        className="w-6 h-6 rounded-lg bg-white hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors shadow-2xs"
-                      >
-                        <Plus className="w-3 h-3" />
+                        <Trash2 className="w-4 h-4" aria-hidden="true" />
                       </button>
                     </div>
-
-                    <button
-                      onClick={() => removeFromCart(item.id)}
-                      className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
-                      title="Hapus item"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </div>
 
-            {/* Cart Calculations & Checkout */}
+            {/* Diskon, total & checkout */}
             {cart.length > 0 && (
-              <div className="p-4 bg-slate-50 border-t border-slate-200 rounded-b-2xl space-y-3">
-                
-                {/* Discount Accordion/Input */}
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
+              <div className="p-4 bg-ink-900 border-t border-white/10 rounded-b-2xl space-y-3">
+
+                {/* Diskon */}
+                <div>
+                  <span className="a18-label">Diskon Transaksi</span>
+                  <div className="flex items-center gap-2">
+                    <div className="flex rounded-xl border border-white/15 p-0.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setDiscountType('nominal')}
+                        aria-pressed={discountType === 'nominal'}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
+                          discountType === 'nominal' ? 'bg-brand-600 text-white' : 'text-neutral-400 hover:text-white'
+                        }`}
+                      >
+                        Rp
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDiscountType('percent')}
+                        aria-pressed={discountType === 'percent'}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
+                          discountType === 'percent' ? 'bg-brand-600 text-white' : 'text-neutral-400 hover:text-white'
+                        }`}
+                      >
+                        %
+                      </button>
+                    </div>
                     <input
                       type="number"
-                      placeholder="Diskon (Rp)"
-                      value={cartDiscount > 0 ? cartDiscount : ''}
-                      onChange={(e) => setCartDiscount(Math.max(0, Number(e.target.value)))}
-                      className="w-full text-xs px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      min={0}
+                      value={discountValue}
+                      onChange={(e) => setDiscountValue(e.target.value)}
+                      placeholder={discountType === 'percent' ? 'Potongan (%)' : 'Potongan (Rp)'}
+                      aria-label="Nilai diskon"
+                      className="a18-input flex-1 min-w-0 py-1.5 text-xs"
                     />
                   </div>
-                  {cartDiscount > 0 && (
-                    <button
-                      onClick={() => setCartDiscount(0)}
-                      className="text-xs text-slate-400 hover:text-slate-600 px-1"
-                    >
-                      Batal
-                    </button>
-                  )}
                 </div>
 
-                {/* Totals */}
-                <div className="space-y-1.5 text-xs text-slate-600">
+                {/* Rincian total */}
+                <div className="space-y-1.5 text-xs text-neutral-400">
                   <div className="flex justify-between">
                     <span>Subtotal</span>
-                    <span className="font-semibold text-slate-800">{formatRupiah(cartSubtotal)}</span>
+                    <span className="font-semibold text-white">{formatRupiah(cartSubtotal)}</span>
                   </div>
                   {cartDiscount > 0 && (
-                    <div className="flex justify-between text-emerald-600">
-                      <span>Potongan Diskon</span>
-                      <span>-{formatRupiah(cartDiscount)}</span>
+                    <div className="flex justify-between text-brand-400">
+                      <span className="flex items-center gap-2">
+                        Potongan Diskon
+                        <button
+                          type="button"
+                          onClick={handleResetDiscount}
+                          className="text-[10px] uppercase tracking-wider text-neutral-500 underline hover:text-white"
+                        >
+                          Batal
+                        </button>
+                      </span>
+                      <span className="font-semibold">-{formatRupiah(cartDiscount)}</span>
                     </div>
                   )}
                   {storeInfo.taxEnabled && (
                     <div className="flex justify-between">
                       <span>PPN ({storeInfo.taxRate}%)</span>
-                      <span className="font-semibold text-slate-800">{formatRupiah(cartTax)}</span>
+                      <span className="font-semibold text-white">{formatRupiah(cartTax)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between items-baseline pt-2 border-t border-slate-200 text-slate-900">
-                    <span className="font-bold text-sm">Total Bayar</span>
-                    <span className="font-extrabold text-xl text-emerald-600">{formatRupiah(cartTotal)}</span>
+                  <div className="flex items-baseline justify-between gap-2 pt-2 border-t border-white/10">
+                    <span className="font-display text-sm font-black uppercase tracking-wide text-white">Total Bayar</span>
+                    <span className="font-display text-xl font-black text-white">{formatRupiah(cartTotal)}</span>
                   </div>
                 </div>
 
-                {/* Checkout Button */}
+                {/* Tombol bayar */}
                 <button
+                  type="button"
                   onClick={() => setIsPaymentModalOpen(true)}
-                  className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/25 flex items-center justify-center space-x-2 transition-all active:scale-[0.98]"
+                  className="a18-btn-primary w-full py-3.5"
                 >
-                  <CreditCard className="w-5 h-5" />
-                  <span>Bayar Sekarang ({formatRupiah(cartTotal)})</span>
+                  <CreditCard className="w-5 h-5" aria-hidden="true" />
+                  <span>Bayar Sekarang</span>
                 </button>
               </div>
             )}
@@ -344,6 +399,28 @@ export default function PosTerminal() {
         </div>
 
       </div>
+
+      {/* Bar bayar mengambang (mobile) */}
+      {cart.length > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-ink-900/95 p-3 backdrop-blur-sm lg:hidden">
+          <div className="mx-auto flex max-w-7xl items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+                {cartItemsCount} item
+              </p>
+              <p className="truncate font-display text-lg font-black text-white">{formatRupiah(cartTotal)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsPaymentModalOpen(true)}
+              className="a18-btn-primary shrink-0 px-5 py-3"
+            >
+              <CreditCard className="h-4 w-4" aria-hidden="true" />
+              Bayar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

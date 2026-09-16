@@ -1,28 +1,62 @@
-import React, { useState } from 'react';
-import { 
-  Plus, 
-  Search, 
-  Edit3, 
-  Trash2, 
-  AlertTriangle, 
-  SlidersHorizontal,
+import React, { useMemo, useState } from 'react';
+import {
+  Plus,
+  Search,
+  Pencil,
+  Trash2,
+  AlertTriangle,
   X,
   Package,
-  Layers,
-  Barcode,
-  ArrowUpDown
+  Boxes,
+  Wallet,
+  TrendingUp,
+  Barcode
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatRupiah, generateSku } from '../utils/formatters';
 
+// Satuan yang dipakai katalog sparepart, aksesoris, dan jasa showroom
+const UNIT_OPTIONS = ['pcs', 'botol', 'liter', 'set', 'unit', 'pack', 'paket', 'pasang'];
+
+// Prefix SKU otomatis per kategori otomotif (fallback: PRD)
+const SKU_PREFIX_BY_CATEGORY = {
+  'Oli & Pelumas': 'OLI',
+  'Aki & Kelistrikan': 'AKI',
+  'Ban & Kaki-kaki': 'BAN',
+  'Aksesoris Interior': 'INT',
+  'Perawatan & Cuci Mobil': 'CUC',
+  'Jasa Showroom': 'JSA'
+};
+
+const skuPrefixFor = (categoryName) => SKU_PREFIX_BY_CATEGORY[categoryName] || 'PRD';
+
+const num = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+
+function StatCard({ icon: Icon, label, value, hint, tone = 'default' }) {
+  const valueTone =
+    tone === 'warning' ? 'text-amber-400' : tone === 'profit' ? 'text-emerald-400' : 'text-white';
+  const iconTone = tone === 'warning' ? 'text-amber-400' : 'text-brand-500';
+
+  return (
+    <div className="a18-card p-4">
+      <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+        <Icon className={`h-3.5 w-3.5 ${iconTone}`} aria-hidden="true" />
+        {label}
+      </div>
+      <p className={`mt-1.5 break-words font-display text-lg font-black sm:text-xl ${valueTone}`}>{value}</p>
+      {hint && <p className="mt-0.5 text-[11px] text-neutral-500">{hint}</p>}
+    </div>
+  );
+}
+
 export default function ProductManagement() {
-  const { 
-    products, 
-    addProduct, 
-    updateProduct, 
-    deleteProduct, 
+  const {
+    products,
+    addProduct,
+    updateProduct,
+    deleteProduct,
     adjustStock,
-    categories 
+    categories
   } = useApp();
 
   const [search, setSearch] = useState('');
@@ -34,6 +68,9 @@ export default function ProductManagement() {
   const [isStockModalOpen, setIsStockModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [stockDelta, setStockDelta] = useState('');
+
+  // SKU otomatis berhenti mengikuti kategori setelah diketik manual
+  const [skuTouched, setSkuTouched] = useState(false);
 
   // Form states
   const [formData, setFormData] = useState({
@@ -50,10 +87,12 @@ export default function ProductManagement() {
 
   const openAddModal = () => {
     setSelectedProduct(null);
+    const firstCat = categories[0];
+    setSkuTouched(false);
     setFormData({
-      sku: generateSku('PRD'),
+      sku: generateSku(skuPrefixFor(firstCat?.name)),
       name: '',
-      categoryId: categories[0]?.id || '',
+      categoryId: firstCat?.id || '',
       unit: 'pcs',
       buyPrice: '',
       sellPrice: '',
@@ -66,6 +105,7 @@ export default function ProductManagement() {
 
   const openEditModal = (product) => {
     setSelectedProduct(product);
+    setSkuTouched(true);
     setFormData({
       sku: product.sku,
       name: product.name,
@@ -80,11 +120,21 @@ export default function ProductManagement() {
     setIsFormOpen(true);
   };
 
+  // Ganti kategori → prefix SKU ikut menyesuaikan selama SKU belum diketik manual
+  const handleCategoryChange = (categoryId) => {
+    const cat = categories.find(c => c.id === categoryId);
+    setFormData(prev => ({
+      ...prev,
+      categoryId,
+      sku: !selectedProduct && !skuTouched ? generateSku(skuPrefixFor(cat?.name)) : prev.sku
+    }));
+  };
+
   const handleSaveProduct = (e) => {
     e.preventDefault();
     const cat = categories.find(c => c.id === formData.categoryId);
     const payload = {
-      sku: formData.sku || generateSku('PRD'),
+      sku: formData.sku || generateSku(skuPrefixFor(cat?.name)),
       name: formData.name,
       categoryId: formData.categoryId,
       categoryName: cat ? cat.name : 'Umum',
@@ -121,6 +171,27 @@ export default function ProductManagement() {
     setStockDelta('');
   };
 
+  const openStockModal = (product) => {
+    setSelectedProduct(product);
+    setStockDelta('');
+    setIsStockModalOpen(true);
+  };
+
+  // Ringkasan stok gudang aksesoris
+  const stats = useMemo(() => {
+    const lowStock = products.filter(p => p.stock <= p.minStock);
+    return {
+      total: products.length,
+      low: lowStock.length,
+      out: products.filter(p => p.stock <= 0).length,
+      stockValue: products.reduce((sum, p) => sum + num(p.buyPrice) * num(p.stock), 0),
+      potentialProfit: products.reduce(
+        (sum, p) => sum + (num(p.sellPrice) - num(p.buyPrice)) * num(p.stock),
+        0
+      )
+    };
+  }, [products]);
+
   // Filtered list
   const filtered = products.filter(p => {
     const matchCat = catFilter === 'all' || p.categoryId === catFilter;
@@ -129,42 +200,84 @@ export default function ProductManagement() {
     return matchCat && matchSearch && matchLow;
   });
 
+  const stockBadgeClass = (p) => {
+    if (p.stock <= 0) return 'border-brand-500/40 bg-brand-600/15 text-brand-300 hover:bg-brand-600/25';
+    if (p.stock <= p.minStock) return 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20';
+    return 'border-white/15 bg-white/5 text-white hover:bg-white/10';
+  };
+
+  const renderStockButton = (p) => (
+    <button
+      type="button"
+      onClick={() => openStockModal(p)}
+      title="Klik untuk ubah stok manual"
+      aria-label={`Ubah stok ${p.name}`}
+      className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 font-mono text-xs font-bold transition-colors ${stockBadgeClass(p)}`}
+    >
+      <span>{p.stock}</span>
+      <span className="text-[10px] font-normal opacity-80">{p.unit}</span>
+    </button>
+  );
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+      {/* Banner */}
+      <div className="a18-stripes-soft flex flex-col gap-4 rounded-3xl p-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Manajemen Produk & Stok</h2>
-          <p className="text-xs sm:text-sm text-slate-500">Kelola inventaris, SKU, harga beli, harga jual, dan stok barang toko.</p>
+          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-500">Panel Showroom</span>
+          <h1 className="a18-heading mt-1 text-2xl sm:text-3xl">Produk Aksesoris &amp; Stok</h1>
+          <p className="mt-1.5 max-w-xl text-sm text-neutral-400">
+            Kelola katalog sparepart, oli, ban, aksesoris interior, dan jasa showroom Auto18 — SKU, harga modal,
+            harga jual, sampai stok gudang.
+          </p>
         </div>
-        <button
-          onClick={openAddModal}
-          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-md shadow-emerald-600/20 flex items-center space-x-2 transition-all self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Tambah Produk Baru</span>
+        <button type="button" onClick={openAddModal} className="a18-btn-primary shrink-0 px-5 py-3">
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          Tambah Produk
         </button>
       </div>
 
+      {/* Ringkasan */}
+      <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard icon={Package} label="Total Produk" value={stats.total} hint="item di katalog" />
+        <StatCard
+          icon={AlertTriangle}
+          label="Stok Menipis"
+          value={stats.low}
+          tone="warning"
+          hint={`${stats.out} item habis`}
+        />
+        <StatCard icon={Wallet} label="Nilai Stok" value={formatRupiah(stats.stockValue)} hint="modal barang di gudang" />
+        <StatCard
+          icon={TrendingUp}
+          label="Potensi Laba"
+          value={formatRupiah(stats.potentialProfit)}
+          tone="profit"
+          hint="bila stok terjual habis"
+        />
+      </div>
+
       {/* Filter Toolbar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
+      <div className="a18-card mt-6 flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
         <div className="relative w-full md:w-80">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-500" aria-hidden="true" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari produk atau SKU..."
-            className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            placeholder="Cari nama produk atau SKU..."
+            aria-label="Cari produk atau SKU"
+            className="a18-input pl-9"
           />
         </div>
 
-        <div className="flex items-center space-x-2 w-full md:w-auto overflow-x-auto">
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center md:w-auto">
           <select
             value={catFilter}
             onChange={(e) => setCatFilter(e.target.value)}
-            className="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            aria-label="Filter kategori"
+            className="a18-input sm:w-56"
           >
             <option value="all">Semua Kategori ({products.length})</option>
             {categories.map(c => (
@@ -173,164 +286,233 @@ export default function ProductManagement() {
           </select>
 
           <button
+            type="button"
             onClick={() => setFilterLowStockOnly(!filterLowStockOnly)}
-            className={`px-3 py-2 text-xs font-semibold rounded-xl border flex items-center space-x-1.5 whitespace-nowrap transition-all ${
+            aria-pressed={filterLowStockOnly}
+            className={`inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border px-3.5 py-2.5 text-xs font-bold transition-colors ${
               filterLowStockOnly
-                ? 'bg-amber-100 border-amber-300 text-amber-900'
-                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                ? 'border-amber-500/50 bg-amber-500/15 text-amber-300'
+                : 'border-white/15 bg-ink-900 text-neutral-400 hover:border-white/30 hover:text-white'
             }`}
           >
-            <AlertTriangle className="w-3.5 h-3.5" />
-            <span>Stok Menipis</span>
+            <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+            Stok Menipis
           </button>
         </div>
       </div>
 
-      {/* Product Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-600">
-            <thead className="bg-slate-50/80 text-slate-700 font-semibold border-b border-slate-200 uppercase tracking-wider text-[10px]">
+      {/* Tabel produk (desktop) */}
+      <div className="mt-4 hidden overflow-x-auto rounded-2xl border border-white/10 md:block">
+        <table className="w-full min-w-[900px] text-left text-sm">
+          <thead className="bg-ink-900 text-[10px] uppercase tracking-wider text-neutral-500">
+            <tr>
+              <th className="px-4 py-3 font-bold">SKU &amp; Barcode</th>
+              <th className="px-4 py-3 font-bold">Nama Produk</th>
+              <th className="px-4 py-3 font-bold">Kategori</th>
+              <th className="px-4 py-3 text-right font-bold">Harga Modal</th>
+              <th className="px-4 py-3 text-right font-bold">Harga Jual</th>
+              <th className="px-4 py-3 text-right font-bold">Margin Laba</th>
+              <th className="px-4 py-3 text-center font-bold">Stok</th>
+              <th className="px-4 py-3 text-center font-bold">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
               <tr>
-                <th className="py-3.5 px-4">SKU & Barcode</th>
-                <th className="py-3.5 px-4">Nama Produk</th>
-                <th className="py-3.5 px-4">Kategori</th>
-                <th className="py-3.5 px-4 text-right">Harga Modal</th>
-                <th className="py-3.5 px-4 text-right">Harga Jual</th>
-                <th className="py-3.5 px-4 text-right">Margin Laba</th>
-                <th className="py-3.5 px-4 text-center">Stok</th>
-                <th className="py-3.5 px-4 text-center">Aksi</th>
+                <td colSpan={8} className="px-4 py-10 text-center text-sm text-neutral-500">
+                  Tidak ada produk yang cocok dengan filter.
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-8 text-center text-slate-400">
-                    Tidak ada produk yang cocok dengan filter.
-                  </td>
-                </tr>
-              ) : (
-                filtered.map(p => {
-                  const profit = p.sellPrice - p.buyPrice;
-                  const profitMargin = p.sellPrice > 0 ? Math.round((profit / p.sellPrice) * 100) : 0;
-                  const isLow = p.stock <= p.minStock;
+            ) : (
+              filtered.map(p => {
+                const profit = p.sellPrice - p.buyPrice;
+                const profitMargin = p.sellPrice > 0 ? Math.round((profit / p.sellPrice) * 100) : 0;
 
-                  return (
-                    <tr key={p.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3 px-4">
-                        <div className="font-mono font-bold text-slate-800">{p.sku}</div>
-                        {p.barcode && <div className="text-[10px] text-slate-400">{p.barcode}</div>}
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="font-semibold text-slate-900">{p.name}</div>
-                        <div className="text-[10px] text-slate-400">Satuan: {p.unit}</div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium text-[11px]">
-                          {p.categoryName}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right text-slate-500 font-mono">
-                        {formatRupiah(p.buyPrice)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-bold text-slate-900 font-mono">
-                        {formatRupiah(p.sellPrice)}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <span className="text-emerald-700 font-semibold font-mono">
-                          +{formatRupiah(profit)}
-                        </span>
-                        <div className="text-[10px] text-slate-400">({profitMargin}%)</div>
-                      </td>
-                      <td className="py-3 px-4 text-center">
+                return (
+                  <tr key={p.id} className="border-t border-white/10 transition-colors hover:bg-white/5">
+                    <td className="px-4 py-3">
+                      <div className="font-mono text-xs font-bold text-white">{p.sku}</div>
+                      {p.barcode && <div className="font-mono text-[10px] text-neutral-500">{p.barcode}</div>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-white">{p.name}</div>
+                      <div className="text-[11px] text-neutral-500">Satuan: {p.unit}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-block rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-medium text-neutral-300">
+                        {p.categoryName}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-neutral-400">
+                      {formatRupiah(p.buyPrice)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono font-bold text-white">
+                      {formatRupiah(p.sellPrice)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={`font-mono font-bold ${profit > 0 ? 'text-emerald-400' : 'text-brand-400'}`}>
+                        {profit > 0 ? '+' : ''}{formatRupiah(profit)}
+                      </span>
+                      <div className="text-[10px] text-neutral-500">({profitMargin}%)</div>
+                    </td>
+                    <td className="px-4 py-3 text-center">{renderStockButton(p)}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-center gap-1.5">
                         <button
-                          onClick={() => {
-                            setSelectedProduct(p);
-                            setIsStockModalOpen(true);
-                          }}
-                          className={`px-2.5 py-1 rounded-lg font-bold text-xs inline-flex items-center space-x-1 transition-all ${
-                            p.stock <= 0
-                              ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                              : isLow
-                              ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
-                              : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                          }`}
-                          title="Klik untuk ubah stok manual"
+                          type="button"
+                          onClick={() => openEditModal(p)}
+                          title="Ubah produk"
+                          aria-label={`Ubah ${p.name}`}
+                          className="rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-white/10 hover:text-white"
                         >
-                          <span>{p.stock}</span>
-                          <span className="text-[10px] font-normal">{p.unit}</span>
+                          <Pencil className="h-4 w-4" aria-hidden="true" />
                         </button>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <div className="flex items-center justify-center space-x-1.5">
-                          <button
-                            onClick={() => openEditModal(p)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
-                            title="Edit Produk"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(p.id, p.name)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                            title="Hapus Produk"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(p.id, p.name)}
+                          title="Hapus produk"
+                          aria-label={`Hapus ${p.name}`}
+                          className="rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-brand-600/20 hover:text-brand-400"
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Kartu produk (mobile) */}
+      <div className="mt-4 space-y-3 md:hidden">
+        {filtered.length === 0 ? (
+          <div className="a18-card p-8 text-center text-sm text-neutral-500">
+            Tidak ada produk yang cocok dengan filter.
+          </div>
+        ) : (
+          filtered.map(p => {
+            const profit = p.sellPrice - p.buyPrice;
+            const profitMargin = p.sellPrice > 0 ? Math.round((profit / p.sellPrice) * 100) : 0;
+
+            return (
+              <div key={p.id} className="a18-card p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-bold text-white">{p.name}</p>
+                    <p className="font-mono text-[11px] text-neutral-500">
+                      {p.sku}{p.barcode ? ` · ${p.barcode}` : ''}
+                    </p>
+                  </div>
+                  {renderStockButton(p)}
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-neutral-300">
+                    {p.categoryName}
+                  </span>
+                  <span className="text-[10px] text-neutral-500">Satuan: {p.unit}</span>
+                </div>
+
+                <div className="mt-3 grid grid-cols-3 gap-2 border-t border-white/10 pt-3 text-xs">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-neutral-500">Modal</p>
+                    <p className="font-mono text-neutral-300">{formatRupiah(p.buyPrice)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-neutral-500">Jual</p>
+                    <p className="font-mono font-bold text-white">{formatRupiah(p.sellPrice)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-neutral-500">Margin</p>
+                    <p className={`font-mono font-bold ${profit > 0 ? 'text-emerald-400' : 'text-brand-400'}`}>
+                      {profit > 0 ? '+' : ''}{formatRupiah(profit)}
+                    </p>
+                    <p className="text-[10px] text-neutral-500">({profitMargin}%)</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <button type="button" onClick={() => openEditModal(p)} className="a18-btn-ghost px-3 py-1.5 text-xs">
+                    <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                    Ubah
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(p.id, p.name)}
+                    className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold text-brand-400 transition-colors hover:bg-brand-600/20"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    Hapus
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Add / Edit Product Modal */}
       {isFormOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-md w-full overflow-hidden">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-bold text-slate-900 text-base">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label={selectedProduct ? 'Ubah data produk' : 'Tambah produk baru'}
+        >
+          <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-ink-800">
+            <div className="flex shrink-0 items-center justify-between border-b border-white/10 p-5">
+              <h3 className="a18-heading text-base">
                 {selectedProduct ? 'Ubah Data Produk' : 'Tambah Produk Baru'}
               </h3>
-              <button onClick={() => setIsFormOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
+              <button
+                type="button"
+                onClick={() => setIsFormOpen(false)}
+                aria-label="Tutup"
+                className="rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveProduct} className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+            <form onSubmit={handleSaveProduct} className="flex-1 space-y-4 overflow-y-auto p-5">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Nama Produk</label>
+                <label className="a18-label" htmlFor="prod-name">Nama Produk</label>
                 <input
+                  id="prod-name"
                   type="text"
                   required
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Contoh: Beras Rojolele 5kg"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder="Contoh: Oli Mesin Shell Helix HX7 4L"
+                  className="a18-input"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">SKU / Kode</label>
+                  <label className="a18-label" htmlFor="prod-sku">SKU / Kode</label>
                   <input
+                    id="prod-sku"
                     type="text"
                     required
                     value={formData.sku}
-                    onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                    className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    onChange={(e) => {
+                      setSkuTouched(true);
+                      setFormData({ ...formData, sku: e.target.value });
+                    }}
+                    className="a18-input font-mono text-xs"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Kategori</label>
+                  <label className="a18-label" htmlFor="prod-cat">Kategori</label>
                   <select
+                    id="prod-cat"
                     value={formData.categoryId}
-                    onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    onChange={(e) => handleCategoryChange(e.target.value)}
+                    className="a18-input text-xs"
                   >
                     {categories.map(c => (
                       <option key={c.id} value={c.id}>{c.name}</option>
@@ -341,80 +523,109 @@ export default function ProductManagement() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Harga Beli / Modal (Rp)</label>
+                  <label className="a18-label" htmlFor="prod-buy">Harga Modal (Rp)</label>
                   <input
+                    id="prod-buy"
                     type="number"
+                    min="0"
                     required
                     value={formData.buyPrice}
                     onChange={(e) => setFormData({ ...formData, buyPrice: e.target.value })}
                     placeholder="0"
-                    className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="a18-input font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Harga Jual (Rp)</label>
+                  <label className="a18-label" htmlFor="prod-sell">Harga Jual (Rp)</label>
                   <input
+                    id="prod-sell"
                     type="number"
+                    min="0"
                     required
                     value={formData.sellPrice}
                     onChange={(e) => setFormData({ ...formData, sellPrice: e.target.value })}
                     placeholder="0"
-                    className="w-full px-3 py-2 text-sm font-bold font-mono text-emerald-700 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="a18-input font-mono font-bold"
                   />
                 </div>
+              </div>
+
+              {/* Preview margin */}
+              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-ink-900 px-3.5 py-2.5 text-xs">
+                <span className="font-bold uppercase tracking-wider text-neutral-500">Margin per satuan</span>
+                <span
+                  className={`font-mono font-bold ${
+                    Number(formData.sellPrice) - Number(formData.buyPrice) > 0 ? 'text-emerald-400' : 'text-brand-400'
+                  }`}
+                >
+                  {formatRupiah((Number(formData.sellPrice) || 0) - (Number(formData.buyPrice) || 0))}
+                </span>
               </div>
 
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Stok Saat Ini</label>
+                  <label className="a18-label" htmlFor="prod-stock">Stok</label>
                   <input
+                    id="prod-stock"
                     type="number"
+                    min="0"
                     required
                     value={formData.stock}
                     onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="a18-input text-xs"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Min. Stok</label>
+                  <label className="a18-label" htmlFor="prod-min">Min. Stok</label>
                   <input
+                    id="prod-min"
                     type="number"
+                    min="0"
                     value={formData.minStock}
                     onChange={(e) => setFormData({ ...formData, minStock: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="a18-input text-xs"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Satuan</label>
+                  <label className="a18-label" htmlFor="prod-unit">Satuan</label>
                   <select
+                    id="prod-unit"
                     value={formData.unit}
                     onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="a18-input text-xs"
                   >
-                    <option value="pcs">pcs</option>
-                    <option value="kg">kg</option>
-                    <option value="pack">pack</option>
-                    <option value="dus">dus</option>
-                    <option value="botol">botol</option>
-                    <option value="pouch">pouch</option>
-                    <option value="renteng">renteng</option>
-                    <option value="kaleng">kaleng</option>
+                    {UNIT_OPTIONS.map(u => (
+                      <option key={u} value={u}>{u}</option>
+                    ))}
+                    {!UNIT_OPTIONS.includes(formData.unit) && formData.unit && (
+                      <option value={formData.unit}>{formData.unit}</option>
+                    )}
                   </select>
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex justify-end space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setIsFormOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                >
+              <div>
+                <label className="a18-label" htmlFor="prod-barcode">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Barcode className="h-3.5 w-3.5" aria-hidden="true" />
+                    Barcode (Opsional)
+                  </span>
+                </label>
+                <input
+                  id="prod-barcode"
+                  type="text"
+                  value={formData.barcode}
+                  onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                  placeholder="899180001001"
+                  className="a18-input font-mono text-xs"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-white/10 pt-4">
+                <button type="button" onClick={() => setIsFormOpen(false)} className="a18-btn-ghost">
                   Batal
                 </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-600/20"
-                >
+                <button type="submit" className="a18-btn-primary">
                   Simpan Produk
                 </button>
               </div>
@@ -425,39 +636,68 @@ export default function ProductManagement() {
 
       {/* Quick Stock Adjustment Modal */}
       {isStockModalOpen && selectedProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl border border-slate-200 p-5 max-w-sm w-full space-y-4">
-            <h4 className="font-bold text-slate-900">Ubah Stok Manual</h4>
-            <p className="text-xs text-slate-500">
-              Produk: <span className="font-semibold text-slate-800">{selectedProduct.name}</span> (Stok saat ini: {selectedProduct.stock} {selectedProduct.unit})
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Ubah stok manual"
+        >
+          <div className="w-full max-w-sm space-y-4 rounded-3xl border border-white/10 bg-ink-800 p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600/15 text-brand-400">
+                  <Boxes className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <h4 className="a18-heading text-base">Ubah Stok Manual</h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsStockModalOpen(false)}
+                aria-label="Tutup"
+                className="rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-400">
+              Produk: <span className="font-semibold text-white">{selectedProduct.name}</span>
+              <br />
+              Stok saat ini:{' '}
+              <span className="font-mono font-bold text-white">
+                {selectedProduct.stock} {selectedProduct.unit}
+              </span>
+              {selectedProduct.stock <= selectedProduct.minStock && (
+                <span className="ml-1 inline-flex items-center gap-1 text-amber-400">
+                  <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                  di bawah minimum ({selectedProduct.minStock})
+                </span>
+              )}
             </p>
 
             <form onSubmit={handleStockAdjustment} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Tambah / Kurangi Jumlah Stok</label>
+                <label className="a18-label" htmlFor="stock-delta">Tambah / Kurangi Jumlah Stok</label>
                 <input
+                  id="stock-delta"
                   type="number"
                   required
                   autoFocus
-                  placeholder="Gunakan tanda minus (-) untuk mengurangi, misal -2"
+                  placeholder="Misal 12 untuk menambah, -2 untuk mengurangi"
                   value={stockDelta}
                   onChange={(e) => setStockDelta(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="a18-input font-mono"
                 />
+                <p className="mt-1.5 text-[11px] text-neutral-500">
+                  Gunakan tanda minus (-) untuk mengurangi stok, misal barang rusak atau retur ke suplier.
+                </p>
               </div>
 
-              <div className="flex justify-end space-x-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsStockModalOpen(false)}
-                  className="px-3 py-1.5 text-xs text-slate-600 rounded-lg hover:bg-slate-100"
-                >
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setIsStockModalOpen(false)} className="a18-btn-ghost">
                   Batal
                 </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700"
-                >
+                <button type="submit" className="a18-btn-primary">
                   Terapkan
                 </button>
               </div>

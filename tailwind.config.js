@@ -7,19 +7,34 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Merah khas Auto18 (logo "18" & garis diagonal poster)
         brand: {
-          50: '#ecfdf5',
-          100: '#d1fae5',
-          200: '#a7f3d0',
-          300: '#6ee7b7',
-          400: '#34d399',
-          500: '#10b981',
-          600: '#059669',
-          700: '#047857',
-          800: '#065f46',
-          900: '#064e3b',
-        }
-      }
+          50: '#fff1f1',
+          100: '#ffdfdf',
+          200: '#ffc5c5',
+          300: '#ff9d9d',
+          400: '#ff6464',
+          500: '#f83b3b',
+          600: '#e41b1b',
+          700: '#c01313',
+          800: '#9e1414',
+          900: '#831818',
+          950: '#480707',
+        },
+        // Hitam pekat latar poster Auto18
+        ink: {
+          DEFAULT: '#070707',
+          900: '#0b0b0b',
+          800: '#121212',
+          700: '#1a1a1a',
+          600: '#242424',
+        },
+      },
+      fontFamily: {
+        sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+        display: ['Montserrat', '"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+      },
     },
   },
   plugins: [],

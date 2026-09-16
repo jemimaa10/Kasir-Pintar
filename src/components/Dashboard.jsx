@@ -1,244 +1,395 @@
-import React from 'react';
-import { 
-  TrendingUp, 
-  ShoppingBag, 
-  Wallet, 
-  AlertTriangle, 
-  ArrowUpRight, 
-  CreditCard,
-  QrCode,
+import React, { useMemo, useState } from 'react';
+import {
+  TrendingUp,
+  Wallet,
+  ReceiptText,
+  CarFront,
+  AlertTriangle,
+  ShoppingBag,
+  CalendarCheck,
+  ArrowLeftRight,
+  CheckCircle2,
   Banknote,
-  Package,
-  PlusCircle,
+  QrCode,
+  CreditCard,
   Clock,
-  ChevronRight
+  ChevronRight,
+  Package
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatRupiah, formatDate } from '../utils/formatters';
+import {
+  formatRupiahShort,
+  getCarName,
+  PAYMENT_METHOD_LABEL,
+  SELL_REQUEST_STATUS,
+  TEST_DRIVE_STATUS
+} from '../utils/carUtils';
+import { isActiveTransaction, netRevenue } from '../utils/transactions';
+
+// Kunci tanggal LOKAL (YYYY-MM-DD). toISOString() memakai UTC dan meleset di WIB.
+const localDateKey = (value) => {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const isCarSale = (trx) => trx.saleType === 'car';
+
+const formatDay = (value) => {
+  if (!value) return '-';
+  const [y, m, d] = String(value).split('-').map(Number);
+  if (!y || !m || !d) return value;
+  return new Intl.DateTimeFormat('id-ID', { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(y, m - 1, d));
+};
+
+const CHART_MODES = [
+  { id: 'all', label: 'Semua' },
+  { id: 'car', label: 'Mobil' },
+  { id: 'retail', label: 'Aksesoris' }
+];
+
+function KpiCard({ icon: Icon, label, value, hint, hintClassName = 'text-neutral-500', onClick, accent = false }) {
+  const Wrapper = onClick ? 'button' : 'div';
+  return (
+    <Wrapper
+      {...(onClick ? { type: 'button', onClick } : {})}
+      className={`a18-card w-full p-4 text-left sm:p-5 ${onClick ? 'transition-colors hover:border-brand-600' : ''}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">{label}</span>
+        <span className={`rounded-xl p-2 ${accent ? 'bg-brand-600/15 text-brand-400' : 'bg-white/5 text-neutral-300'}`}>
+          <Icon className="h-4 w-4" aria-hidden="true" />
+        </span>
+      </div>
+      <p className="mt-2 font-display text-xl font-black leading-tight text-white sm:text-2xl">{value}</p>
+      {hint && <p className={`mt-1 text-xs ${hintClassName}`}>{hint}</p>}
+    </Wrapper>
+  );
+}
+
+function PaymentIcon({ method }) {
+  if (method === 'cash') return <Banknote className="h-4 w-4 text-neutral-200" aria-hidden="true" />;
+  if (method === 'qris') return <QrCode className="h-4 w-4 text-neutral-200" aria-hidden="true" />;
+  return <CreditCard className="h-4 w-4 text-neutral-200" aria-hidden="true" />;
+}
+
+function PanelHeader({ title, subtitle, actionLabel, onAction }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="min-w-0">
+        <h3 className="a18-heading text-sm sm:text-base">{title}</h3>
+        {subtitle && <p className="mt-0.5 text-xs text-neutral-500">{subtitle}</p>}
+      </div>
+      {actionLabel && onAction && (
+        <button type="button" onClick={onAction} className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-brand-400 transition-colors hover:text-brand-300">
+          {actionLabel}
+          <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function Dashboard() {
-  const { 
-    transactions, 
-    products, 
-    setActiveTab, 
-    setCurrentReceipt, 
-    setIsReceiptModalOpen 
+  const {
+    transactions,
+    products,
+    cars,
+    sellRequests,
+    testDrives,
+    setActiveTab,
+    setCurrentReceipt,
+    setIsReceiptModalOpen
   } = useApp();
 
-  // Metrics for Today
-  const today = new Date().toISOString().slice(0, 10);
-  const todayTrx = transactions.filter(t => t.date.slice(0, 10) === today);
-  const todayRevenue = todayTrx.reduce((acc, t) => acc + t.total, 0);
-  const todayProfit = todayTrx.reduce((acc, t) => acc + (t.totalProfit || 0), 0);
-  const todayCount = todayTrx.length;
+  const [chartMode, setChartMode] = useState('all');
 
-  // Low stock products
+  const todayKey = localDateKey(new Date());
+  const now = new Date();
+
+  const openReceipt = (trx) => {
+    setCurrentReceipt(trx);
+    setIsReceiptModalOpen(true);
+  };
+
+  // ------------------------------------------------------------- Hari ini
+  // Transaksi yang dibatalkan ("Batalkan status terjual") tidak dihitung di omset/laba —
+  // netRevenue juga mengeluarkan PPN, jadi Omset - HPP = Laba.
+  const todayStats = useMemo(() => {
+    const todayTrx = transactions.filter(t => isActiveTransaction(t) && localDateKey(t.date) === todayKey);
+    const carTrx = todayTrx.filter(isCarSale);
+    return {
+      revenue: todayTrx.reduce((acc, t) => acc + netRevenue(t), 0),
+      profit: todayTrx.reduce((acc, t) => acc + (Number(t.totalProfit) || 0), 0),
+      count: todayTrx.length,
+      carCount: carTrx.length,
+      retailCount: todayTrx.length - carTrx.length
+    };
+  }, [transactions, todayKey]);
+
+  // ------------------------------------------------------------- Showroom
+  const showroomStats = useMemo(() => {
+    const ref = new Date();
+    const carSalesThisMonth = transactions.filter(t => {
+      if (!isActiveTransaction(t) || !isCarSale(t)) return false;
+      const d = new Date(t.date);
+      return !Number.isNaN(d.getTime()) && d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth();
+    });
+    return {
+      available: cars.filter(c => c.status === 'available').length,
+      booked: cars.filter(c => c.status === 'booked').length,
+      soldThisMonth: carSalesThisMonth.length,
+      carRevenueThisMonth: carSalesThisMonth.reduce((acc, t) => acc + netRevenue(t), 0),
+      newRequests: sellRequests.filter(r => r.status === 'new').length,
+      totalRequests: sellRequests.length,
+      pendingTestDrives: testDrives.filter(t => t.status === 'pending').length,
+      todayTestDrives: testDrives.filter(t => t.date === todayKey && t.status !== 'cancelled').length
+    };
+  }, [transactions, cars, sellRequests, testDrives, todayKey]);
+
+  // ------------------------------------------------------------- Grafik 7 hari
+  const chartDays = useMemo(() => {
+    const days = [];
+    for (let i = 6; i >= 0; i -= 1) {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - i);
+      days.push({
+        key: localDateKey(d),
+        dayName: new Intl.DateTimeFormat('id-ID', { weekday: 'short', day: 'numeric' }).format(d),
+        all: 0,
+        car: 0,
+        retail: 0
+      });
+    }
+    const byKey = new Map(days.map(d => [d.key, d]));
+    transactions.filter(isActiveTransaction).forEach(t => {
+      const bucket = byKey.get(localDateKey(t.date));
+      if (!bucket) return;
+      const amount = netRevenue(t);
+      bucket.all += amount;
+      if (isCarSale(t)) bucket.car += amount;
+      else bucket.retail += amount;
+    });
+    return days;
+  }, [transactions]);
+
+  // Omset mobil jauh lebih besar dari retail — tiap tampilan pakai skala sendiri
+  const chartMax = Math.max(...chartDays.map(d => d[chartMode]), 1);
+  const chartTotal = chartDays.reduce((acc, d) => acc + d[chartMode], 0);
+
+  // ------------------------------------------------------------- Daftar ringkas
+  const topAccessories = useMemo(() => {
+    const map = new Map();
+    transactions.filter(t => isActiveTransaction(t) && !isCarSale(t)).forEach(trx => {
+      (trx.items || []).forEach(item => {
+        const current = map.get(item.id) || { name: item.name, qty: 0, revenue: 0 };
+        current.qty += Number(item.qty) || 0;
+        current.revenue += Number(item.subtotal) || 0;
+        map.set(item.id, current);
+      });
+    });
+    return Array.from(map.values()).sort((a, b) => b.qty - a.qty).slice(0, 5);
+  }, [transactions]);
+
+  const recentTransactions = useMemo(
+    () => [...transactions].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5),
+    [transactions]
+  );
+
+  const recentCarSales = useMemo(
+    () => transactions.filter(isCarSale).sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5),
+    [transactions]
+  );
+
+  const upcomingTestDrives = useMemo(
+    () => testDrives
+      .filter(t => ['pending', 'confirmed'].includes(t.status) && String(t.date || '') >= todayKey)
+      .sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`))
+      .slice(0, 5),
+    [testDrives, todayKey]
+  );
+
+  const recentRequests = useMemo(
+    () => [...sellRequests].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5),
+    [sellRequests]
+  );
+
   const lowStockProducts = products.filter(p => p.stock <= p.minStock);
 
-  // Top products calculation
-  const productSalesMap = {};
-  transactions.forEach(trx => {
-    trx.items.forEach(item => {
-      if (!productSalesMap[item.id]) {
-        productSalesMap[item.id] = { name: item.name, qty: 0, revenue: 0 };
-      }
-      productSalesMap[item.id].qty += item.qty;
-      productSalesMap[item.id].revenue += item.subtotal;
-    });
-  });
-  const topProducts = Object.values(productSalesMap)
-    .sort((a, b) => b.qty - a.qty)
-    .slice(0, 5);
-
-  // 7-day sales breakdown
-  const last7Days = Array.from({ length: 7 }).map((_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    const key = d.toISOString().slice(0, 10);
-    const dayTrx = transactions.filter(t => t.date.slice(0, 10) === key);
-    const total = dayTrx.reduce((acc, t) => acc + t.total, 0);
-    const dayName = new Intl.DateTimeFormat('id-ID', { weekday: 'short', day: 'numeric' }).format(d);
-    return { date: key, dayName, total };
-  });
-  const maxDayTotal = Math.max(...last7Days.map(d => d.total), 100000);
+  const todayMargin = todayStats.revenue > 0 ? Math.round((todayStats.profit / todayStats.revenue) * 100) : 0;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      
-      {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white p-6 sm:p-8 rounded-3xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+    <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+
+      {/* Banner */}
+      <div className="a18-stripes-soft flex flex-col gap-5 rounded-3xl p-6 sm:p-8 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <span className="text-xs font-bold uppercase tracking-widest text-emerald-400 bg-emerald-950/60 px-2.5 py-1 rounded-full border border-emerald-800/50">
-            Ringkasan Bisnis Hari Ini
-          </span>
-          <h2 className="text-2xl sm:text-3xl font-extrabold mt-2 tracking-tight">
-            Dashboard Penjualan UMKM
-          </h2>
-          <p className="text-slate-300 text-sm mt-1 max-w-xl">
-            Pantau arus kas kasir, performa omset harian, dan ketersediaan stok barang secara real-time.
+          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-500">Panel Showroom</span>
+          <h1 className="a18-heading mt-1 text-2xl sm:text-3xl">Dashboard Showroom Auto18</h1>
+          <p className="mt-1.5 flex items-center gap-1.5 text-sm text-neutral-400">
+            <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+            {formatDate(now, false)}
           </p>
         </div>
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={() => setActiveTab('pos')}
-            className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/25 flex items-center space-x-2 transition-all active:scale-[0.98]"
-          >
-            <ShoppingBag className="w-4 h-4" />
-            <span>Buka Kasir POS</span>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setActiveTab('pos')} className="a18-btn-primary">
+            <ShoppingBag className="h-4 w-4" aria-hidden="true" />
+            Kasir Aksesoris
+          </button>
+          <button type="button" onClick={() => setActiveTab('cars')} className="a18-btn-outline">
+            <CarFront className="h-4 w-4" aria-hidden="true" />
+            Stok Mobil
+          </button>
+          <button type="button" onClick={() => setActiveTab('buy-car')} className="a18-btn-outline">
+            <Wallet className="h-4 w-4" aria-hidden="true" />
+            Beli Mobil
           </button>
         </div>
       </div>
 
-      {/* KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        
-        {/* Card 1: Omset Hari Ini */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Omset Hari Ini</span>
-            <div className="p-2.5 rounded-xl bg-emerald-100 text-emerald-700">
-              <TrendingUp className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <h3 className="text-2xl font-extrabold text-slate-900">{formatRupiah(todayRevenue)}</h3>
-            <p className="text-xs text-emerald-600 font-medium mt-1 flex items-center">
-              <span>{todayCount} transaksi berhasil</span>
-            </p>
-          </div>
+      {/* KPI hari ini */}
+      <div>
+        <h2 className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500">Performa Hari Ini</h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <KpiCard
+            icon={TrendingUp}
+            accent
+            label="Omset Hari Ini"
+            value={formatRupiah(todayStats.revenue)}
+            hint={`${todayStats.count} transaksi tercatat`}
+          />
+          <KpiCard
+            icon={Wallet}
+            label="Laba Hari Ini"
+            value={formatRupiah(todayStats.profit)}
+            hint={`Margin ${todayMargin}% dari omset`}
+            hintClassName={todayStats.profit >= 0 ? 'text-emerald-400' : 'text-brand-400'}
+          />
+          <KpiCard
+            icon={ReceiptText}
+            label="Jumlah Transaksi"
+            value={todayStats.count}
+            hint={`${todayStats.carCount} mobil · ${todayStats.retailCount} aksesoris`}
+            onClick={() => setActiveTab('reports')}
+          />
         </div>
-
-        {/* Card 2: Laba Kotor Hari Ini */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Estimasi Laba Kotor</span>
-            <div className="p-2.5 rounded-xl bg-teal-100 text-teal-700">
-              <Wallet className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <h3 className="text-2xl font-extrabold text-slate-900">{formatRupiah(todayProfit)}</h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Margin: {todayRevenue > 0 ? Math.round((todayProfit / todayRevenue) * 100) : 0}% dari omset
-            </p>
-          </div>
-        </div>
-
-        {/* Card 3: Total Produk */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Katalog Produk</span>
-            <div className="p-2.5 rounded-xl bg-blue-100 text-blue-700">
-              <Package className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <h3 className="text-2xl font-extrabold text-slate-900">{products.length}</h3>
-            <p className="text-xs text-blue-600 font-medium mt-1 cursor-pointer hover:underline" onClick={() => setActiveTab('products')}>
-              Lihat manajemen inventaris &rarr;
-            </p>
-          </div>
-        </div>
-
-        {/* Card 4: Stok Menipis */}
-        <div className={`bg-white p-5 rounded-2xl border transition-shadow ${
-          lowStockProducts.length > 0 
-            ? 'border-amber-300 bg-amber-50/20' 
-            : 'border-slate-200'
-        }`}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Stok Menipis / Habis</span>
-            <div className={`p-2.5 rounded-xl ${
-              lowStockProducts.length > 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
-            }`}>
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <h3 className={`text-2xl font-extrabold ${
-              lowStockProducts.length > 0 ? 'text-amber-700' : 'text-slate-900'
-            }`}>
-              {lowStockProducts.length} Produk
-            </h3>
-            <p className="text-xs text-amber-700 font-medium mt-1 cursor-pointer hover:underline" onClick={() => setActiveTab('products')}>
-              {lowStockProducts.length > 0 ? 'Perlu kulakan / restock segera' : 'Semua stok dalam batas aman'}
-            </p>
-          </div>
-        </div>
-
       </div>
 
-      {/* Middle Section: 7-Day Chart & Top Products */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* 7-Day Chart (8 cols) */}
-        <div className="lg:col-span-8 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
+      {/* KPI showroom */}
+      <div>
+        <h2 className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500">Ringkasan Showroom</h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiCard
+            icon={CarFront}
+            accent
+            label="Mobil Tersedia / Dipesan"
+            value={`${showroomStats.available} / ${showroomStats.booked}`}
+            hint="unit siap dijual · unit dipesan"
+            onClick={() => setActiveTab('cars')}
+          />
+          <KpiCard
+            icon={CheckCircle2}
+            label="Mobil Terjual Bulan Ini"
+            value={`${showroomStats.soldThisMonth} unit`}
+            hint={`Omset mobil ${formatRupiahShort(showroomStats.carRevenueThisMonth)}`}
+            onClick={() => setActiveTab('cars')}
+          />
+          <KpiCard
+            icon={ArrowLeftRight}
+            label="Permintaan Jual Baru"
+            value={showroomStats.newRequests}
+            hint={`dari ${showroomStats.totalRequests} permintaan masuk`}
+            hintClassName={showroomStats.newRequests > 0 ? 'text-amber-400' : 'text-neutral-500'}
+            onClick={() => setActiveTab('cars')}
+          />
+          <KpiCard
+            icon={CalendarCheck}
+            label="Test Drive"
+            value={`${showroomStats.pendingTestDrives} pending`}
+            hint={`${showroomStats.todayTestDrives} jadwal hari ini`}
+            hintClassName={showroomStats.todayTestDrives > 0 ? 'text-amber-400' : 'text-neutral-500'}
+            onClick={() => setActiveTab('cars')}
+          />
+        </div>
+      </div>
+
+      {/* Grafik & aksesoris terlaris */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <div className="a18-card space-y-4 p-5 sm:p-6 lg:col-span-8">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 className="font-bold text-slate-900 text-base">Tren Omset 7 Hari Terakhir</h3>
-              <p className="text-xs text-slate-500">Performa transaksi harian kasir</p>
+              <h3 className="a18-heading text-sm sm:text-base">Tren Omset 7 Hari</h3>
+              <p className="mt-0.5 text-xs text-neutral-500">
+                Total {formatRupiah(chartTotal)} · skala mengikuti tampilan terpilih
+              </p>
             </div>
-            <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg">
-              Live Chart
-            </span>
+            <div role="group" aria-label="Filter jenis omset" className="inline-flex rounded-xl border border-white/10 bg-ink-900 p-1">
+              {CHART_MODES.map(mode => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => setChartMode(mode.id)}
+                  aria-pressed={chartMode === mode.id}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                    chartMode === mode.id ? 'bg-brand-600 text-white' : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Bar Chart Visualization */}
-          <div className="pt-6 pb-2">
-            <div className="h-48 flex items-end justify-between gap-2 sm:gap-4 px-2">
-              {last7Days.map((d, idx) => {
-                const heightPct = Math.round((d.total / maxDayTotal) * 100);
-                const isToday = idx === 6;
-                return (
-                  <div key={d.date} className="flex-1 flex flex-col items-center gap-2 group">
-                    <div className="text-[10px] font-bold text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {formatRupiah(d.total)}
-                    </div>
-                    <div className="w-full max-w-[48px] bg-slate-100 rounded-xl h-36 flex items-end p-1">
-                      <div 
-                        style={{ height: `${Math.max(8, heightPct)}%` }}
-                        className={`w-full rounded-lg transition-all duration-300 ${
-                          isToday 
-                            ? 'bg-gradient-to-t from-emerald-600 to-teal-400 shadow-md shadow-emerald-500/20' 
-                            : 'bg-slate-300 group-hover:bg-emerald-400'
-                        }`}
-                      />
-                    </div>
-                    <span className={`text-[11px] whitespace-nowrap ${
-                      isToday ? 'font-bold text-emerald-700' : 'text-slate-500 font-medium'
-                    }`}>
-                      {d.dayName}
-                    </span>
+          <div className="flex h-56 items-end justify-between gap-1.5 pt-4 sm:gap-3">
+            {chartDays.map((d, idx) => {
+              const value = d[chartMode];
+              const heightPct = value > 0 ? Math.max(6, Math.round((value / chartMax) * 100)) : 0;
+              const isToday = idx === chartDays.length - 1;
+              return (
+                <div key={d.key} className="group flex min-w-0 flex-1 flex-col items-center gap-2">
+                  <div className="text-[9px] font-bold text-neutral-300 opacity-0 transition-opacity group-hover:opacity-100 sm:text-[10px]">
+                    {formatRupiahShort(value)}
                   </div>
-                );
-              })}
-            </div>
+                  <div className="flex h-36 w-full max-w-[52px] items-end rounded-xl bg-white/5 p-1">
+                    <div
+                      style={{ height: `${heightPct}%` }}
+                      title={`${d.dayName}: ${formatRupiah(value)}`}
+                      className={`w-full rounded-lg transition-all duration-300 ${
+                        isToday
+                          ? 'bg-gradient-to-t from-brand-700 to-brand-500 shadow-lg shadow-brand-600/30'
+                          : 'bg-neutral-700 group-hover:bg-brand-600'
+                      }`}
+                    />
+                  </div>
+                  <span className={`whitespace-nowrap text-[10px] ${isToday ? 'font-bold text-brand-400' : 'font-medium text-neutral-500'}`}>
+                    {d.dayName}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* Top Selling Products (4 cols) */}
-        <div className="lg:col-span-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-slate-900 text-base">Produk Terlaris</h3>
-            <span className="text-xs text-slate-400">Total Terjual</span>
-          </div>
-
-          <div className="space-y-3">
-            {topProducts.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-8">Belum ada data transaksi</p>
+        <div className="a18-card space-y-4 p-5 sm:p-6 lg:col-span-4">
+          <PanelHeader title="Aksesoris Terlaris" subtitle="Top 5 item kasir" actionLabel="Produk" onAction={() => setActiveTab('products')} />
+          <div className="space-y-2">
+            {topAccessories.length === 0 ? (
+              <p className="py-8 text-center text-xs text-neutral-500">Belum ada penjualan aksesoris.</p>
             ) : (
-              topProducts.map((p, idx) => (
-                <div key={idx} className="flex items-center justify-between p-2.5 rounded-xl hover:bg-slate-50 transition-colors">
-                  <div className="flex items-center space-x-3 min-w-0">
-                    <span className="w-6 h-6 rounded-lg bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center">
+              topAccessories.map((p, idx) => (
+                <div key={`${p.name}-${idx}`} className="flex items-center justify-between gap-2 rounded-xl p-2 transition-colors hover:bg-white/5">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-600/20 font-display text-xs font-black text-brand-400">
                       {idx + 1}
                     </span>
                     <div className="min-w-0">
-                      <h5 className="text-xs font-semibold text-slate-800 truncate" title={p.name}>{p.name}</h5>
-                      <span className="text-[10px] text-slate-400">{formatRupiah(p.revenue)}</span>
+                      <p className="truncate text-xs font-semibold text-white" title={p.name}>{p.name}</p>
+                      <p className="text-[10px] text-neutral-500">{formatRupiah(p.revenue)}</p>
                     </div>
                   </div>
-                  <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">
+                  <span className="shrink-0 rounded-lg bg-white/5 px-2 py-1 text-[10px] font-bold text-neutral-300">
                     {p.qty} terjual
                   </span>
                 </div>
@@ -246,89 +397,222 @@ export default function Dashboard() {
             )}
           </div>
         </div>
-
       </div>
 
-      {/* Bottom Section: Low stock alerts & Recent Transactions */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* Low stock alert table (5 cols) */}
-        <div className="lg:col-span-5 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <AlertTriangle className="w-4 h-4 text-amber-500" />
-              <h3 className="font-bold text-slate-900 text-base">Peringatan Stok Menipis</h3>
+      {/* Transaksi terakhir & mobil terjual */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <div className="a18-card space-y-4 p-5 sm:p-6 lg:col-span-7">
+          <PanelHeader
+            title="Transaksi Terakhir"
+            subtitle={`${transactions.length} transaksi tercatat`}
+            actionLabel="Lihat laporan"
+            onAction={() => setActiveTab('reports')}
+          />
+          <div className="divide-y divide-white/10">
+            {recentTransactions.length === 0 ? (
+              <p className="py-8 text-center text-xs text-neutral-500">Belum ada transaksi.</p>
+            ) : (
+              recentTransactions.map(trx => {
+                const carSale = isCarSale(trx);
+                const carLabel = carSale ? (getCarName(trx.car, { withYear: true }) || trx.items?.[0]?.name || 'Mobil') : '';
+                const methodLabel = PAYMENT_METHOD_LABEL[trx.paymentMethod] || trx.paymentMethod;
+                return (
+                  <button
+                    key={trx.id}
+                    type="button"
+                    onClick={() => openReceipt(trx)}
+                    className="flex w-full items-center justify-between gap-3 rounded-xl p-2 text-left transition-colors hover:bg-white/5"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${carSale ? 'bg-brand-600/20' : 'bg-white/5'}`}>
+                        {carSale
+                          ? <CarFront className="h-4 w-4 text-brand-400" aria-hidden="true" />
+                          : <PaymentIcon method={trx.paymentMethod} />}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="flex items-center gap-1.5 truncate font-mono text-xs font-bold text-white">
+                          {trx.code}
+                          {!isActiveTransaction(trx) && (
+                            <span className="rounded-full border border-brand-500/40 bg-brand-600/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-brand-300">
+                              Dibatalkan
+                            </span>
+                          )}
+                        </p>
+                        <p className="truncate text-[11px] text-neutral-500">
+                          {carSale ? carLabel : trx.customerName}
+                        </p>
+                        <p className="truncate text-[10px] text-neutral-600">
+                          {formatDate(trx.date)}
+                          {carSale && ` · ${trx.customerName}`}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="font-mono text-xs font-bold text-white">{formatRupiah(trx.total)}</p>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
+                        {trx.paymentMethod === 'credit' && trx.credit?.leasing
+                          ? `${methodLabel} · ${trx.credit.leasing}`
+                          : methodLabel}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="a18-card space-y-4 p-5 sm:p-6 lg:col-span-5">
+          <PanelHeader title="Mobil Terjual Terbaru" actionLabel="Stok mobil" onAction={() => setActiveTab('cars')} />
+          <div className="space-y-2">
+            {recentCarSales.length === 0 ? (
+              <p className="py-8 text-center text-xs text-neutral-500">Belum ada penjualan mobil.</p>
+            ) : (
+              recentCarSales.map(trx => (
+                <button
+                  key={trx.id}
+                  type="button"
+                  onClick={() => openReceipt(trx)}
+                  className="flex w-full items-start justify-between gap-3 rounded-xl border border-white/10 p-3 text-left transition-colors hover:border-brand-600 hover:bg-white/5"
+                >
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-1.5 truncate text-xs font-bold text-white">
+                      {getCarName(trx.car, { withYear: true }) || trx.items?.[0]?.name || 'Mobil'}
+                      {!isActiveTransaction(trx) && (
+                        <span className="rounded-full border border-brand-500/40 bg-brand-600/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-brand-300">
+                          Dibatalkan
+                        </span>
+                      )}
+                    </p>
+                    <p className="truncate text-[11px] text-neutral-500">{trx.customerName}</p>
+                    <p className="text-[10px] text-neutral-600">{formatDate(trx.date, false)}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="font-display text-sm font-black text-white">{formatRupiahShort(trx.total)}</p>
+                    <p className="text-[10px] font-semibold text-neutral-500">
+                      {PAYMENT_METHOD_LABEL[trx.paymentMethod] || trx.paymentMethod}
+                    </p>
+                    {(Number(trx.totalProfit) || 0) !== 0 && (
+                      <p className={`text-[10px] font-bold ${trx.totalProfit >= 0 ? 'text-emerald-400' : 'text-brand-400'}`}>
+                        {formatRupiahShort(trx.totalProfit)}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Test drive, permintaan jual, stok menipis */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="a18-card space-y-4 p-5 sm:p-6">
+          <PanelHeader title="Test Drive Mendatang" actionLabel="Kelola" onAction={() => setActiveTab('cars')} />
+          <div className="space-y-2">
+            {upcomingTestDrives.length === 0 ? (
+              <p className="py-8 text-center text-xs text-neutral-500">Tidak ada jadwal test drive mendatang.</p>
+            ) : (
+              upcomingTestDrives.map(booking => {
+                const status = TEST_DRIVE_STATUS[booking.status];
+                const isToday = booking.date === todayKey;
+                return (
+                  <div key={booking.id} className={`rounded-xl border p-3 ${isToday ? 'border-brand-600/60 bg-brand-600/5' : 'border-white/10'}`}>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {status && (
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${status.className}`}>
+                          {status.label}
+                        </span>
+                      )}
+                      {isToday && (
+                        <span className="rounded-full bg-brand-600 px-2 py-0.5 text-[10px] font-black uppercase text-white">Hari Ini</span>
+                      )}
+                    </div>
+                    <p className="mt-1.5 truncate text-xs font-bold text-white">{booking.carName}</p>
+                    <p className="truncate text-[11px] text-neutral-500">{booking.customerName}</p>
+                    <p className="mt-1 inline-flex items-center gap-1 text-[10px] text-neutral-400">
+                      <CalendarCheck className="h-3 w-3" aria-hidden="true" />
+                      {formatDay(booking.date)} · {booking.time}
+                    </p>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="a18-card space-y-4 p-5 sm:p-6">
+          <PanelHeader title="Permintaan Jual Terbaru" actionLabel="Kelola" onAction={() => setActiveTab('cars')} />
+          <div className="space-y-2">
+            {recentRequests.length === 0 ? (
+              <p className="py-8 text-center text-xs text-neutral-500">Belum ada permintaan jual mobil.</p>
+            ) : (
+              recentRequests.map(request => {
+                const status = SELL_REQUEST_STATUS[request.status];
+                return (
+                  <div key={request.id} className="rounded-xl border border-white/10 p-3">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {status && (
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${status.className}`}>
+                          {status.label}
+                        </span>
+                      )}
+                      <span className="rounded-full border border-white/15 px-2 py-0.5 text-[10px] font-bold uppercase text-neutral-400">
+                        {request.type === 'trade-in' ? 'Tukar Tambah' : 'Jual'}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 truncate text-xs font-bold text-white">
+                      {[request.brand, request.model, request.variant, request.year].filter(Boolean).join(' ')}
+                    </p>
+                    <p className="truncate text-[11px] text-neutral-500">{request.customerName}</p>
+                    <p className="mt-1 text-[10px] text-neutral-400">
+                      Harga diharapkan {request.askingPrice > 0 ? formatRupiahShort(request.askingPrice) : '-'}
+                    </p>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="a18-card space-y-4 p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-400" aria-hidden="true" />
+              <h3 className="a18-heading text-sm sm:text-base">Stok Menipis</h3>
             </div>
-            <button 
-              onClick={() => setActiveTab('suppliers')}
-              className="text-xs font-semibold text-emerald-600 hover:text-emerald-700"
-            >
-              Kulakan &rarr;
+            <button type="button" onClick={() => setActiveTab('suppliers')} className="inline-flex items-center gap-1 text-xs font-bold text-brand-400 transition-colors hover:text-brand-300">
+              Kulakan
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
 
           {lowStockProducts.length === 0 ? (
-            <div className="p-6 text-center text-xs text-slate-400">
-              Semua produk memiliki stok yang memadai 👍
-            </div>
+            <p className="py-8 text-center text-xs text-neutral-500">Semua stok aksesoris aman.</p>
           ) : (
-            <div className="space-y-2.5">
+            <div className="space-y-2">
               {lowStockProducts.slice(0, 5).map(prod => (
-                <div key={prod.id} className="flex items-center justify-between p-3 rounded-xl bg-amber-50/50 border border-amber-200/60">
-                  <div>
-                    <h5 className="font-semibold text-xs text-slate-800">{prod.name}</h5>
-                    <p className="text-[10px] text-slate-500">Min. Stok: {prod.minStock} {prod.unit}</p>
+                <div key={prod.id} className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/25 bg-amber-500/5 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-semibold text-white">{prod.name}</p>
+                    <p className="text-[10px] text-neutral-500">Min. stok {prod.minStock} {prod.unit}</p>
                   </div>
-                  <span className="text-xs font-extrabold px-2 py-1 rounded-lg bg-red-100 text-red-700">
+                  <span className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-bold ${
+                    prod.stock <= 0 ? 'bg-brand-600/20 text-brand-300' : 'bg-amber-500/15 text-amber-300'
+                  }`}>
                     Sisa {prod.stock} {prod.unit}
                   </span>
                 </div>
               ))}
+              {lowStockProducts.length > 5 && (
+                <button type="button" onClick={() => setActiveTab('products')} className="inline-flex items-center gap-1 text-[11px] font-bold text-neutral-400 hover:text-white">
+                  <Package className="h-3.5 w-3.5" aria-hidden="true" />
+                  {lowStockProducts.length - 5} produk lainnya
+                </button>
+              )}
             </div>
           )}
         </div>
-
-        {/* Recent Transactions List (7 cols) */}
-        <div className="lg:col-span-7 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-slate-900 text-base">Aktivitas Transaksi Terakhir</h3>
-            <button 
-              onClick={() => setActiveTab('reports')}
-              className="text-xs font-semibold text-emerald-600 hover:text-emerald-700"
-            >
-              Lihat Semua ({transactions.length}) &rarr;
-            </button>
-          </div>
-
-          <div className="space-y-2.5 divide-y divide-slate-100">
-            {transactions.slice(0, 5).map(trx => (
-              <div 
-                key={trx.id}
-                onClick={() => {
-                  setCurrentReceipt(trx);
-                  setIsReceiptModalOpen(true);
-                }}
-                className="pt-2.5 first:pt-0 flex items-center justify-between cursor-pointer hover:bg-slate-50 p-2 rounded-xl transition-colors"
-              >
-                <div className="flex items-center space-x-3">
-                  <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs">
-                    {trx.paymentMethod === 'cash' ? <Banknote className="w-4 h-4 text-emerald-600" /> : trx.paymentMethod === 'qris' ? <QrCode className="w-4 h-4 text-blue-600" /> : <CreditCard className="w-4 h-4 text-purple-600" />}
-                  </div>
-                  <div>
-                    <h5 className="font-semibold text-xs text-slate-800">{trx.code}</h5>
-                    <p className="text-[10px] text-slate-400">{formatDate(trx.date)} • {trx.customerName}</p>
-                  </div>
-                </div>
-
-                <div className="text-right">
-                  <div className="font-bold text-xs text-slate-900">{formatRupiah(trx.total)}</div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500">{trx.paymentMethod}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
       </div>
 
     </div>
