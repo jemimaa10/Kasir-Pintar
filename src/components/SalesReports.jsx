@@ -1,245 +1,474 @@
-import React, { useState } from 'react';
-import { 
-  FileBarChart, 
-  Download, 
-  Filter, 
-  Printer, 
-  Search, 
-  Banknote, 
-  QrCode, 
-  CreditCard,
-  Calendar
+import React, { useMemo, useState } from 'react';
+import {
+  Download,
+  Printer,
+  Search,
+  CarFront,
+  ShoppingBag,
+  TrendingUp,
+  Wallet,
+  Coins,
+  ReceiptText
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatRupiah, formatDate } from '../utils/formatters';
+import { formatRupiahShort, getCarName, PAYMENT_METHOD_LABEL } from '../utils/carUtils';
+import { isActiveTransaction, netRevenue } from '../utils/transactions';
+
+// Kunci tanggal LOKAL (YYYY-MM-DD) — toISOString() memakai UTC dan meleset di WIB.
+const localDateKey = (value) => {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const localTime = (value) => {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+const isCarSale = (trx) => trx.saleType === 'car';
+
+// Modal (HPP) transaksi = harga beli x qty setiap item
+const hppOf = (trx) => (trx.items || []).reduce((acc, item) => acc + (Number(item.buyPrice) || 0) * (Number(item.qty) || 0), 0);
+
+const profitOf = (trx) => (
+  typeof trx.totalProfit === 'number' ? trx.totalProfit : (Number(trx.total) || 0) - hppOf(trx)
+);
+
+const unitsOf = (trx) => (trx.items || []).reduce((acc, item) => acc + (Number(item.qty) || 0), 0);
+
+// Ringkasan item untuk tabel: mobil pakai nama mobil, retail pakai item pertama
+const summaryOf = (trx) => {
+  if (isCarSale(trx)) return getCarName(trx.car, { withYear: true }) || trx.items?.[0]?.name || 'Mobil';
+  const items = trx.items || [];
+  if (items.length === 0) return '-';
+  return items.length > 1 ? `${items[0].name} +${items.length - 1} item lain` : items[0].name;
+};
+
+// Escape CSV: bungkus kutip ganda & gandakan kutip di dalam nilai
+// (nama produk memuat koma dan kutip, mis. 'Wiper Bosch Clear Advantage 22"')
+const csvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+function SummaryCard({ icon: Icon, label, value, hint, valueClassName = 'text-white', hintClassName = 'text-neutral-500', accent = false }) {
+  return (
+    <div className="a18-card p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">{label}</span>
+        <span className={`rounded-xl p-2 ${accent ? 'bg-brand-600/15 text-brand-400' : 'bg-white/5 text-neutral-300'}`}>
+          <Icon className="h-4 w-4" aria-hidden="true" />
+        </span>
+      </div>
+      <p className={`mt-2 font-display text-lg font-black leading-tight sm:text-xl ${valueClassName}`}>{value}</p>
+      {hint && <p className={`mt-1 text-xs ${hintClassName}`}>{hint}</p>}
+    </div>
+  );
+}
+
+function TypeBadge({ carSale }) {
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${
+      carSale ? 'border-brand-500/40 bg-brand-600/20 text-brand-300' : 'border-white/15 bg-white/5 text-neutral-300'
+    }`}>
+      {carSale ? <CarFront className="h-3 w-3" aria-hidden="true" /> : <ShoppingBag className="h-3 w-3" aria-hidden="true" />}
+      {carSale ? 'Mobil' : 'Aksesoris'}
+    </span>
+  );
+}
+
+function MethodCell({ trx }) {
+  const label = PAYMENT_METHOD_LABEL[trx.paymentMethod] || trx.paymentMethod || '-';
+  return (
+    <div>
+      <span className="text-xs font-semibold text-white">{label}</span>
+      {trx.paymentMethod === 'credit' && trx.credit && (
+        <span className="block text-[10px] text-neutral-500">
+          {trx.credit.leasing} · {trx.credit.tenorMonths} bln · {formatRupiahShort(trx.credit.monthly)}/bln
+        </span>
+      )}
+    </div>
+  );
+}
 
 export default function SalesReports() {
   const { transactions, setCurrentReceipt, setIsReceiptModalOpen } = useApp();
 
-  const [dateFilter, setDateFilter] = useState('all'); // 'today', 'week', 'month', 'all'
+  const [dateFilter, setDateFilter] = useState('all'); // 'today' | 'week' | 'month' | 'all'
+  const [typeFilter, setTypeFilter] = useState('all'); // 'all' | 'car' | 'retail'
   const [methodFilter, setMethodFilter] = useState('all');
   const [search, setSearch] = useState('');
 
-  // Filter transactions
-  const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
+  const todayKey = localDateKey(new Date());
 
-  const filtered = transactions.filter(t => {
-    // Search by code or customer
-    const matchSearch = t.code.toLowerCase().includes(search.toLowerCase()) || 
-                        t.customerName.toLowerCase().includes(search.toLowerCase());
-    
-    // Payment method
-    const matchMethod = methodFilter === 'all' || t.paymentMethod === methodFilter;
+  // Awal jendela 7 hari (hari ini + 6 hari ke belakang), dihitung lokal
+  const weekStart = new Date();
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - 6);
+  const weekStartKey = localDateKey(weekStart);
 
-    // Date range
-    let matchDate = true;
-    const tDate = new Date(t.date);
-    if (dateFilter === 'today') {
-      matchDate = t.date.slice(0, 10) === todayStr;
-    } else if (dateFilter === 'week') {
-      const diffDays = (now - tDate) / (1000 * 60 * 60 * 24);
-      matchDate = diffDays <= 7;
-    } else if (dateFilter === 'month') {
-      matchDate = tDate.getMonth() === now.getMonth() && tDate.getFullYear() === now.getFullYear();
-    }
+  const filtered = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    const now = new Date();
 
-    return matchSearch && matchMethod && matchDate;
-  });
+    return transactions.filter(t => {
+      // Pencarian: kode nota, nama pelanggan, atau nama item / mobil
+      if (keyword) {
+        const haystack = [
+          t.code,
+          t.customerName,
+          ...(t.items || []).map(i => i.name),
+          isCarSale(t) ? getCarName(t.car, { withYear: true }) : ''
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (!haystack.includes(keyword)) return false;
+      }
 
-  // Calculate summaries
-  const totalRevenue = filtered.reduce((acc, t) => acc + t.total, 0);
-  const totalProfit = filtered.reduce((acc, t) => acc + (t.totalProfit || 0), 0);
-  const avgBasket = filtered.length > 0 ? Math.round(totalRevenue / filtered.length) : 0;
+      if (typeFilter === 'car' && !isCarSale(t)) return false;
+      if (typeFilter === 'retail' && isCarSale(t)) return false;
+      if (methodFilter !== 'all' && t.paymentMethod !== methodFilter) return false;
 
-  // Export to CSV
+      const key = localDateKey(t.date);
+      if (dateFilter === 'today') return key === todayKey;
+      if (dateFilter === 'week') return key >= weekStartKey && key <= todayKey;
+      if (dateFilter === 'month') {
+        const d = new Date(t.date);
+        if (Number.isNaN(d.getTime())) return false;
+        return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+      }
+      return true;
+    });
+  }, [transactions, search, typeFilter, methodFilter, dateFilter, todayKey, weekStartKey]);
+
+  // Transaksi 'void' (dibatalkan lewat "Batalkan status terjual") tetap tampil di tabel
+  // dengan badge, tapi tidak boleh ikut dihitung di ringkasan omset/laba/unit. netRevenue
+  // membuang PPN dari omset supaya Omset - HPP = Laba.
+  const summary = useMemo(() => {
+    const active = filtered.filter(isActiveTransaction);
+    const carTrx = active.filter(isCarSale);
+    const retailTrx = active.filter(t => !isCarSale(t));
+    const revenue = active.reduce((acc, t) => acc + netRevenue(t), 0);
+    return {
+      count: active.length,
+      revenue,
+      cost: active.reduce((acc, t) => acc + hppOf(t), 0),
+      profit: active.reduce((acc, t) => acc + profitOf(t), 0),
+      average: active.length > 0 ? Math.round(revenue / active.length) : 0,
+      carRevenue: carTrx.reduce((acc, t) => acc + netRevenue(t), 0),
+      carUnits: carTrx.reduce((acc, t) => acc + unitsOf(t), 0),
+      retailRevenue: retailTrx.reduce((acc, t) => acc + netRevenue(t), 0),
+      retailCount: retailTrx.length
+    };
+  }, [filtered]);
+
+  const margin = summary.revenue > 0 ? Math.round((summary.profit / summary.revenue) * 100) : 0;
+
+  const openReceipt = (trx) => {
+    setCurrentReceipt(trx);
+    setIsReceiptModalOpen(true);
+  };
+
   const handleExportCSV = () => {
     if (filtered.length === 0) {
       alert('Tidak ada data transaksi untuk diekspor!');
       return;
     }
 
-    const headers = ['No. Transaksi', 'Tanggal', 'Waktu', 'Kasir', 'Pelanggan', 'Metode Bayar', 'Subtotal', 'Diskon', 'Total', 'Estimasi Laba'];
-    const rows = filtered.map(t => [
-      t.code,
-      t.date.slice(0, 10),
-      t.date.slice(11, 16),
-      `"${t.cashier || 'Kasir'}"`,
-      `"${t.customerName}"`,
-      t.paymentMethod.toUpperCase(),
-      t.subtotal,
-      t.discount,
-      t.total,
-      t.totalProfit || 0
-    ]);
+    const headers = [
+      'No. Transaksi', 'Tanggal', 'Waktu', 'Status', 'Jenis', 'Kasir', 'Pelanggan',
+      'Rincian Item', 'Detail Mobil', 'Metode Bayar', 'Leasing', 'DP', 'Tenor (bulan)', 'Cicilan / Bulan',
+      'Subtotal', 'Diskon', 'Pajak (PPN)', 'Total', 'Tukar Tambah', 'Sisa Bayar', 'Modal (HPP)', 'Laba'
+    ];
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + 
-      [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const rows = filtered.map(t => {
+      const carSale = isCarSale(t);
+      const car = t.car;
+      const credit = t.credit;
+      return [
+        t.code,
+        localDateKey(t.date),
+        localTime(t.date),
+        isActiveTransaction(t) ? 'Selesai' : 'Dibatalkan',
+        carSale ? 'Penjualan Mobil' : 'Aksesoris & Jasa',
+        t.cashier || 'Kasir',
+        t.customerName,
+        (t.items || []).map(i => `${i.name} x${i.qty}`).join('; '),
+        carSale && car ? `${getCarName(car, { withYear: true })} | ${car.plate || 'tanpa plat'} | ${car.year || '-'}` : '',
+        PAYMENT_METHOD_LABEL[t.paymentMethod] || t.paymentMethod || '',
+        credit?.leasing || '',
+        credit ? credit.dpAmount : '',
+        credit ? credit.tenorMonths : '',
+        credit ? credit.monthly : '',
+        Number(t.subtotal) || 0,
+        Number(t.discount) || 0,
+        Number(t.tax) || 0,
+        Number(t.total) || 0,
+        t.tradeIn?.value || '',
+        Number.isFinite(t.amountDue) ? t.amountDue : '',
+        hppOf(t),
+        profitOf(t)
+      ];
+    });
 
-    const encodedUri = encodeURI(csvContent);
+    // BOM UTF-8 supaya Excel membaca teks Indonesia dengan benar
+    const csv = '﻿' + [headers, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Laporan_Penjualan_Kasir_${todayStr}.csv`);
+    link.href = url;
+    link.download = `Laporan_Penjualan_Auto18_${todayKey}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+
+      {/* Banner */}
+      <div className="a18-stripes-soft flex flex-col gap-4 rounded-3xl p-6 sm:p-8 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Laporan Penjualan & Transaksi</h2>
-          <p className="text-xs sm:text-sm text-slate-500">Pantau riwayat omset, keuntungan bersih, dan cetak ulang struk kasir.</p>
+          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-500">Panel Showroom</span>
+          <h1 className="a18-heading mt-1 text-2xl sm:text-3xl">Laporan Penjualan</h1>
+          <p className="mt-1.5 max-w-xl text-sm text-neutral-400">
+            Riwayat penjualan mobil dan aksesoris, laba bersih, serta cetak ulang nota.
+          </p>
         </div>
-        <button
-          onClick={handleExportCSV}
-          className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-xl shadow-sm flex items-center space-x-2 transition-all self-start sm:self-auto"
-        >
-          <Download className="w-4 h-4" />
-          <span>Export ke CSV (Excel)</span>
+        <button type="button" onClick={handleExportCSV} className="a18-btn-primary shrink-0 px-5 py-3">
+          <Download className="h-4 w-4" aria-hidden="true" />
+          Export CSV
         </button>
       </div>
 
-      {/* Summary KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Omset Filtered</span>
-          <h3 className="text-2xl font-extrabold text-slate-900 mt-2">{formatRupiah(totalRevenue)}</h3>
-          <p className="text-xs text-slate-400 mt-1">{filtered.length} transaksi tercatat</p>
+      {/* Filter */}
+      <div className="a18-card p-4 sm:p-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="sm:col-span-2 lg:col-span-1">
+            <label htmlFor="rep-search" className="a18-label">Cari</label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-500" aria-hidden="true" />
+              <input
+                id="rep-search"
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Kode nota, pelanggan, atau item"
+                className="a18-input pl-9"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="rep-date" className="a18-label">Periode</label>
+            <select id="rep-date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="a18-input">
+              <option value="today">Hari Ini</option>
+              <option value="week">7 Hari Terakhir</option>
+              <option value="month">Bulan Ini</option>
+              <option value="all">Semua Waktu</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="rep-type" className="a18-label">Jenis</label>
+            <select id="rep-type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="a18-input">
+              <option value="all">Semua</option>
+              <option value="car">Penjualan Mobil</option>
+              <option value="retail">Aksesoris &amp; Jasa</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="rep-method" className="a18-label">Metode Bayar</label>
+            <select id="rep-method" value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)} className="a18-input">
+              <option value="all">Semua Metode</option>
+              <option value="cash">Tunai</option>
+              <option value="qris">QRIS</option>
+              <option value="transfer">Transfer</option>
+              <option value="credit">Kredit</option>
+            </select>
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-neutral-500">{filtered.length} transaksi ditampilkan</p>
+      </div>
+
+      {/* Ringkasan */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <SummaryCard
+          icon={TrendingUp}
+          accent
+          label="Total Omset"
+          value={formatRupiah(summary.revenue)}
+          hint={`${summary.count} transaksi aktif${summary.count !== filtered.length ? ` · ${filtered.length - summary.count} dibatalkan` : ''}`}
+        />
+        <SummaryCard
+          icon={Coins}
+          label="Total Modal (HPP)"
+          value={formatRupiah(summary.cost)}
+          hint="harga beli seluruh item terjual"
+        />
+        <SummaryCard
+          icon={Wallet}
+          label="Laba Bersih"
+          value={formatRupiah(summary.profit)}
+          valueClassName={summary.profit >= 0 ? 'text-emerald-400' : 'text-brand-400'}
+          hint={`Margin ${margin}% dari omset`}
+          hintClassName={summary.profit >= 0 ? 'text-emerald-400' : 'text-brand-400'}
+        />
+        <SummaryCard
+          icon={ReceiptText}
+          label="Rata-Rata Transaksi"
+          value={formatRupiah(summary.average)}
+          hint="nilai per nota"
+        />
+      </div>
+
+      {/* Pembagian omset */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="a18-card flex items-center justify-between gap-3 p-4 sm:p-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="rounded-xl bg-brand-600/15 p-2.5 text-brand-400">
+              <CarFront className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Omset Mobil</p>
+              <p className="font-display text-lg font-black text-white sm:text-xl">{formatRupiah(summary.carRevenue)}</p>
+            </div>
+          </div>
+          <span className="shrink-0 rounded-lg bg-white/5 px-2.5 py-1 text-xs font-bold text-neutral-300">
+            {summary.carUnits} unit
+          </span>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Keuntungan / Laba Bersih</span>
-          <h3 className="text-2xl font-extrabold text-emerald-600 mt-2">{formatRupiah(totalProfit)}</h3>
-          <p className="text-xs text-emerald-700 font-medium mt-1">
-            {totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0}% Margin rata-rata
-          </p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Rata-Rata per Transaksi</span>
-          <h3 className="text-2xl font-extrabold text-slate-900 mt-2">{formatRupiah(avgBasket)}</h3>
-          <p className="text-xs text-slate-400 mt-1">Nilai belanja rata-rata</p>
+        <div className="a18-card flex items-center justify-between gap-3 p-4 sm:p-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="rounded-xl bg-white/5 p-2.5 text-neutral-300">
+              <ShoppingBag className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Omset Aksesoris</p>
+              <p className="font-display text-lg font-black text-white sm:text-xl">{formatRupiah(summary.retailRevenue)}</p>
+            </div>
+          </div>
+          <span className="shrink-0 rounded-lg bg-white/5 px-2.5 py-1 text-xs font-bold text-neutral-300">
+            {summary.retailCount} transaksi
+          </span>
         </div>
       </div>
 
-      {/* Filter Toolbar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="relative w-full md:w-72">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari kode nota atau pelanggan..."
-            className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-        </div>
-
-        <div className="flex items-center space-x-2 w-full md:w-auto overflow-x-auto">
-          {/* Date Filter */}
-          <select
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-            className="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
-          >
-            <option value="today">Hari Ini</option>
-            <option value="week">7 Hari Terakhir</option>
-            <option value="month">Bulan Ini</option>
-            <option value="all">Semua Waktu</option>
-          </select>
-
-          {/* Method Filter */}
-          <select
-            value={methodFilter}
-            onChange={(e) => setMethodFilter(e.target.value)}
-            className="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
-          >
-            <option value="all">Semua Metode</option>
-            <option value="cash">Tunai (Cash)</option>
-            <option value="qris">QRIS</option>
-            <option value="transfer">Transfer Bank</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Transactions Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-600">
-            <thead className="bg-slate-50/80 text-slate-700 font-semibold border-b border-slate-200 uppercase tracking-wider text-[10px]">
+      {/* Tabel desktop */}
+      <div className="hidden overflow-x-auto rounded-2xl border border-white/10 md:block">
+        <table className="w-full min-w-[1000px] text-left text-sm">
+          <thead className="bg-ink-900 text-[10px] uppercase tracking-wider text-neutral-500">
+            <tr>
+              <th className="px-4 py-3">Tanggal</th>
+              <th className="px-4 py-3">Kode</th>
+              <th className="px-4 py-3">Jenis</th>
+              <th className="px-4 py-3">Pelanggan</th>
+              <th className="px-4 py-3">Rincian</th>
+              <th className="px-4 py-3">Metode</th>
+              <th className="px-4 py-3 text-right">Total</th>
+              <th className="px-4 py-3 text-right">Laba</th>
+              <th className="px-4 py-3 text-center">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
               <tr>
-                <th className="py-3.5 px-4">No. Transaksi</th>
-                <th className="py-3.5 px-4">Tanggal & Waktu</th>
-                <th className="py-3.5 px-4">Pelanggan</th>
-                <th className="py-3.5 px-4">Metode Bayar</th>
-                <th className="py-3.5 px-4 text-center">Item</th>
-                <th className="py-3.5 px-4 text-right">Total Transaksi</th>
-                <th className="py-3.5 px-4 text-right">Laba Bersih</th>
-                <th className="py-3.5 px-4 text-center">Aksi</th>
+                <td colSpan={9} className="px-4 py-10 text-center text-sm text-neutral-500">
+                  Tidak ada transaksi pada filter ini.
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-8 text-center text-slate-400">
-                    Tidak ada transaksi pada filter ini.
-                  </td>
-                </tr>
-              ) : (
-                filtered.map(t => (
-                  <tr key={t.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="py-3 px-4 font-mono font-bold text-slate-800">
-                      {t.code}
+            ) : (
+              filtered.map(t => {
+                const profit = profitOf(t);
+                return (
+                  <tr key={t.id} className="border-t border-white/10 transition-colors hover:bg-white/5">
+                    <td className="px-4 py-3 text-xs text-neutral-400">{formatDate(t.date)}</td>
+                    <td className="px-4 py-3 font-mono text-xs font-bold text-white">{t.code}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <TypeBadge carSale={isCarSale(t)} />
+                        {!isActiveTransaction(t) && (
+                          <span className="rounded-full border border-brand-500/40 bg-brand-600/20 px-2 py-0.5 text-[10px] font-bold uppercase text-brand-300">
+                            Dibatalkan
+                          </span>
+                        )}
+                      </div>
                     </td>
-                    <td className="py-3 px-4 text-slate-600">
-                      {formatDate(t.date)}
+                    <td className="px-4 py-3 text-xs font-medium text-white">{t.customerName}</td>
+                    <td className="max-w-[260px] px-4 py-3">
+                      <p className="truncate text-xs text-neutral-300" title={summaryOf(t)}>{summaryOf(t)}</p>
+                      {!isCarSale(t) && (
+                        <span className="text-[10px] text-neutral-500">{(t.items || []).length} item</span>
+                      )}
                     </td>
-                    <td className="py-3 px-4 font-medium text-slate-800">
-                      {t.customerName}
+                    <td className="px-4 py-3"><MethodCell trx={t} /></td>
+                    <td className="px-4 py-3 text-right font-mono text-xs font-bold text-white">{formatRupiah(t.total)}</td>
+                    <td className={`px-4 py-3 text-right font-mono text-xs font-bold ${profit >= 0 ? 'text-emerald-400' : 'text-brand-400'}`}>
+                      {formatRupiah(profit)}
                     </td>
-                    <td className="py-3 px-4">
-                      <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-semibold uppercase ${
-                        t.paymentMethod === 'cash' 
-                          ? 'bg-emerald-100 text-emerald-800' 
-                          : t.paymentMethod === 'qris' 
-                          ? 'bg-blue-100 text-blue-800' 
-                          : 'bg-purple-100 text-purple-800'
-                      }`}>
-                        {t.paymentMethod === 'cash' ? <Banknote className="w-3 h-3" /> : t.paymentMethod === 'qris' ? <QrCode className="w-3 h-3" /> : <CreditCard className="w-3 h-3" />}
-                        <span>{t.paymentMethod}</span>
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="font-semibold text-slate-700">{t.items.length} item</span>
-                    </td>
-                    <td className="py-3 px-4 text-right font-bold text-slate-900 font-mono">
-                      {formatRupiah(t.total)}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-bold text-emerald-600">
-                      +{formatRupiah(t.totalProfit || 0)}
-                    </td>
-                    <td className="py-3 px-4 text-center">
+                    <td className="px-4 py-3 text-center">
                       <button
-                        onClick={() => {
-                          setCurrentReceipt(t);
-                          setIsReceiptModalOpen(true);
-                        }}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center space-x-1 mx-auto transition-colors"
+                        type="button"
+                        onClick={() => openReceipt(t)}
+                        title="Cetak ulang nota"
+                        className="a18-btn-ghost mx-auto px-2.5 py-1.5 text-xs"
                       >
-                        <Printer className="w-3.5 h-3.5" />
-                        <span>Struk</span>
+                        <Printer className="h-3.5 w-3.5" aria-hidden="true" />
+                        Nota
                       </button>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Kartu mobile */}
+      <div className="space-y-3 md:hidden">
+        {filtered.length === 0 ? (
+          <p className="a18-card p-10 text-center text-sm text-neutral-500">Tidak ada transaksi pada filter ini.</p>
+        ) : (
+          filtered.map(t => {
+            const profit = profitOf(t);
+            return (
+              <div key={t.id} className="a18-card p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <TypeBadge carSale={isCarSale(t)} />
+                    {!isActiveTransaction(t) && (
+                      <span className="rounded-full border border-brand-500/40 bg-brand-600/20 px-2 py-0.5 text-[10px] font-bold uppercase text-brand-300">
+                        Dibatalkan
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-mono text-[11px] text-neutral-500">{t.code}</span>
+                </div>
+                <p className="mt-2 text-sm font-bold text-white">{summaryOf(t)}</p>
+                <p className="text-xs text-neutral-400">{t.customerName}</p>
+                <p className="text-[11px] text-neutral-500">{formatDate(t.date)}</p>
+
+                <div className="mt-3 flex items-end justify-between gap-3 border-t border-white/10 pt-3">
+                  <MethodCell trx={t} />
+                  <div className="text-right">
+                    <p className="font-mono text-sm font-bold text-white">{formatRupiah(t.total)}</p>
+                    <p className={`font-mono text-[11px] font-bold ${profit >= 0 ? 'text-emerald-400' : 'text-brand-400'}`}>
+                      Laba {formatRupiah(profit)}
+                    </p>
+                  </div>
+                </div>
+
+                <button type="button" onClick={() => openReceipt(t)} className="a18-btn-outline mt-3 w-full py-2 text-xs">
+                  <Printer className="h-3.5 w-3.5" aria-hidden="true" />
+                  Cetak Ulang Nota
+                </button>
+              </div>
+            );
+          })
+        )}
       </div>
 
     </div>

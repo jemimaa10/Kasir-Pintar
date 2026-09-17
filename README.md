@@ -1,55 +1,53 @@
-# Kasir Pintar UMKM 🏪🛒
+# AUTO18 — Auto Eighteen 🚗🔴
 
-Aplikasi web **Point of Sale (POS) & Manajemen Inventaris** modern yang dirancang khusus untuk kebutuhan toko kelontong, minimarket, grosir, dan usaha ritel UMKM di Indonesia.
+**Jual / Beli Mobil Second Berkualitas.** Aplikasi web showroom mobil bekas: etalase mobil untuk pembeli, formulir jual & tukar tambah untuk penjual, plus panel showroom lengkap (stok mobil, kasir aksesoris, laporan penjualan).
+
+Tampilannya mengikuti materi promosi Auto18: latar hitam, garis diagonal merah, dan tipografi tebal huruf besar.
 
 ---
 
 ## ✨ Fitur Utama
 
-- **🖥️ Mesin Kasir POS (Point of Sale)**
-  - Pencarian cepat produk berdasarkan nama, kode SKU, atau barcode.
-  - Filter kategori instan (*Sembako, Minyak & Bumbu, Minuman, Snack, Kebersihan*).
-  - Keranjang belanja interaktif (*tambah/kurang kuantitas, hapus item, input diskon Rp*).
-  - Kalkulasi otomatis Subtotal, Diskon, PPN, dan Total Tagihan.
+### 🚘 Beli Mobil (halaman pembeli)
+- Hero pencarian cepat: kata kunci, tipe bodi, dan rentang harga.
+- Pintasan merek dan tipe bodi lengkap dengan jumlah unit.
+- Filter lengkap: merek (multi-pilih), harga, tipe bodi, transmisi, bahan bakar, tahun, kilometer, lokasi, favorit, dan opsi menampilkan mobil terjual.
+- Urutan: rekomendasi, terbaru, harga, kilometer, dan tahun.
+- Kartu mobil dengan foto, badge status, nilai inspeksi, harga cash, dan estimasi cicilan.
+- Detail mobil: spesifikasi lengkap, fitur, laporan inspeksi 7 kategori, simulasi kredit, booking test drive, dan tombol kontak WhatsApp / call center.
+- Simpan mobil ke **favorit** (tersimpan di browser).
 
-- **💳 Modal Pembayaran Fleksibel**
-  - **Tunai / Cash**: Tombol pecahan Rupiah cepat (Rp 20.000, 50.000, 100.000, Uang Pas) dengan kalkulasi kembalian otomatis.
-  - **QRIS**: Tampilan kode QR interaktif untuk pembayaran dompet digital (GoPay, OVO, Dana, ShopeePay, BCA).
-  - **Transfer Bank**: Rekening tujuan (BCA, Mandiri, BRI).
+### 💰 Jual Mobil & Tukar Tambah
+- Formulir 3 langkah: data mobil → jadwal inspeksi → data kontak.
+- **Estimasi harga instan** dihitung dari merek, model, tahun, kilometer, transmisi, dan kondisi.
+- Mode tukar tambah: pilih mobil incaran di showroom dan lihat perkiraan tambahan bayar.
+- Permintaan masuk langsung ke panel showroom beserta kode permintaan.
 
-- **🖨️ Cetak Struk Thermal (58mm / 80mm)**
-  - Format struk mini standar printer thermal kasir.
-  - Integrasi tombol cetak langsung browser (`window.print()`) dengan styling CSS print media khusus.
-  - Tombol salin teks nota ke clipboard.
+### 🏢 Panel Showroom
+- **Stok Mobil**: tambah/edit/hapus unit, atur status (tersedia, dipesan, terjual), tandai "Pilihan Auto18", pantau modal, harga jual, dan margin. Status "terjual" bisa dibatalkan — transaksinya ditandai "Dibatalkan" dan tidak lagi dihitung di Dashboard/Laporan, tapi mobil tukar tambah yang sudah masuk stok dari penjualan itu tidak ikut ditarik.
+- **Proses Penjualan**: tunai, transfer, atau kredit (pilih leasing, DP, tenor, bunga flat) dengan opsi tukar tambah. Mobil tukar tambah otomatis masuk stok **hanya** kalau diambil dari permintaan tukar tambah yang sudah diinspeksi; tukar tambah yang diisi manual cuma mengurangi sisa bayar dan mobilnya harus ditambahkan sendiri lewat Tambah Mobil.
+- **Permintaan Jual/Tukar Tambah**: jadwalkan inspeksi → catat hasil & penawaran → beli dan masukkan ke stok.
+- **Test Drive**: konfirmasi, selesaikan, atau batalkan jadwal, dengan penanda "hari ini".
 
-- **📦 Manajemen Produk & Inventaris**
-  - Katalog produk terperinci dengan perhitungan otomatis margin keuntungan per barang.
-  - Tambah, edit, dan hapus produk.
-  - Penyesuaian stok manual (*Stock Adjustment*) secara cepat.
-  - Indikator peringatan stok menipis (*Low Stock Alerts*).
+### 🧾 Kasir Aksesoris & Perawatan (POS)
+- Penjualan oli, aki, ban, aksesoris interior, perawatan, dan jasa showroom.
+- Keranjang, diskon, PPN opsional, pembayaran tunai/QRIS/transfer, dan cetak struk thermal.
+- Manajemen produk & stok (margin otomatis, peringatan stok menipis) serta suplier & stok masuk.
 
-- **🚚 Manajemen Suplier & Stok Masuk (Kulakan)**
-  - Pencatatan kontak distributor/suplier.
-  - Formulir penerimaan barang masuk dari suplier yang langsung menambah stok barang di gudang.
+### 📊 Dashboard & Laporan
+- KPI harian dan KPI showroom (mobil tersedia, terjual bulan ini, permintaan baru, test drive).
+- Grafik omset 7 hari dengan pemisahan penjualan mobil dan aksesoris.
+- Laporan penjualan dengan filter waktu, jenis penjualan, dan metode bayar; ekspor CSV; cetak ulang nota.
 
-- **📊 Laporan Penjualan & Keuntungan**
-  - Rekapitulasi finansial: Total Omset, Total Modal (HPP), Total Laba Bersih, dan Nilai Keranjang Rata-rata.
-  - Filter waktu: *Hari Ini, 7 Hari Terakhir, Bulan Ini, Semua Waktu*.
-  - Riwayat transaksi lengkap dengan opsi cetak ulang struk lama kapan saja.
-  - **Export to CSV**: Unduh laporan penjualan ke format Excel (`.csv`).
-
-- **📈 Dashboard Bisnis**
-  - KPI harian, grafik tren omset mingguan, dan daftar 5 produk terlaris.
-
-- **💾 Penyimpanan Otomatis (Local Persistence)**
-  - Terintegrasi dengan `localStorage` browser sehingga semua data transaksi, produk, dan pengaturan toko tersimpan permanen tanpa perlu setup database rumit.
+### 💾 Penyimpanan
+Semua data tersimpan otomatis di `localStorage` browser (prefix `auto18_`), tanpa perlu database. Tombol reset mengembalikan data demo.
 
 ---
 
-## 🚀 Cara Menjalankan Aplikasi
+## 🚀 Cara Menjalankan
 
 ### Prasyarat
-- [Node.js](https://nodejs.org/) (versi 18 ke atas)
+- [Node.js](https://nodejs.org/) versi 18 ke atas
 
 ### Langkah Instalasi
 ```bash
@@ -67,20 +65,36 @@ Buka browser dan akses: **http://localhost:5173/**
 
 ### Build Produksi
 ```bash
-npm run build
+npm run build            # hasil siap deploy ada di folder dist/
+npm run build:standalone # satu file HTML mandiri: aplikasi-kasir-langsung-buka.html
 ```
-Hasil build yang siap di-deploy akan berada di dalam folder `dist/`.
+File hasil `build:standalone` bisa dibuka langsung dengan klik dua kali, tanpa server (JS, CSS, dan foto mobil ikut ter-inline).
 
 ---
 
 ## 🛠️ Tech Stack
 
 - **Frontend**: React 18
-- **Build Tool**: Vite
-- **Styling**: Tailwind CSS
+- **Build Tool**: Vite 6
+- **Styling**: Tailwind CSS 3 (tema kustom `brand` merah & `ink` hitam)
 - **Icons**: Lucide React
-- **Typography**: Plus Jakarta Sans & JetBrains Mono
+- **Typography**: Montserrat (judul), Plus Jakarta Sans (teks), JetBrains Mono (angka)
+
+## 📁 Struktur Singkat
+
+```
+src/
+├─ components/     # Navbar, Footer, halaman, modal, dan bagian bergaya poster
+├─ context/        # AppContext: seluruh state & aksi aplikasi
+├─ data/           # data awal (mobil, produk, konten poster) & peta foto mobil
+├─ utils/          # format Rupiah/tanggal, simulasi kredit, estimasi harga mobil
+└─ assets/cars/    # foto mobil + CREDITS.md
+```
+
+## 📷 Kredit Foto
+
+Foto mobil berasal dari **Wikimedia Commons** dengan lisensi CC BY-SA 4.0. Daftar penulis, lisensi, dan tautan sumber ada di [`src/assets/cars/CREDITS.md`](src/assets/cars/CREDITS.md) dan ditampilkan pada halaman detail mobil.
 
 ---
 
-Dibuat untuk memajukan digitalisasi UMKM Indonesia 🇮🇩.
+Dibuat untuk Auto18 — Auto Eighteen 🇮🇩
