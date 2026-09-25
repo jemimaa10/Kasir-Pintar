@@ -8,8 +8,12 @@ import {
   AlertCircle,
   ArrowRight
 } from 'lucide-react';
+import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { formatRupiah } from '../utils/formatters';
+import Money from './Money';
+
+const PILL_SPRING = { type: 'spring', bounce: 0.15, duration: 0.35 };
 
 export default function PaymentModal() {
   const {
@@ -102,7 +106,7 @@ export default function PaymentModal() {
         <div className="a18-stripes-soft p-6 text-center">
           <span className="text-[10px] uppercase font-black tracking-[0.2em] text-brand-500">Total Tagihan</span>
           <div className="font-display text-3xl font-black text-white mt-1">
-            {formatRupiah(cartTotal)}
+            <Money value={cartTotal} />
           </div>
         </div>
 
@@ -124,7 +128,7 @@ export default function PaymentModal() {
           {/* Metode pembayaran */}
           <div>
             <span className="a18-label">Metode Pembayaran</span>
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="isolate grid grid-cols-3 gap-2.5">
               {[
                 { id: 'cash', label: 'Tunai', icon: Banknote },
                 { id: 'qris', label: 'QRIS', icon: QrCode },
@@ -138,14 +142,24 @@ export default function PaymentModal() {
                     type="button"
                     onClick={() => setPaymentMethod(m.id)}
                     aria-pressed={isSel}
-                    className={`p-3 rounded-2xl border flex flex-col items-center justify-center gap-1.5 transition-colors ${
+                    className={`relative p-3 rounded-2xl border flex flex-col items-center justify-center gap-1.5 transition-colors ${
                       isSel
-                        ? 'border-brand-600 bg-brand-600/15 text-white font-bold'
+                        ? 'border-transparent text-white font-bold'
                         : 'border-white/10 bg-ink-900 text-neutral-400 hover:border-white/25 hover:text-white'
                     }`}
                   >
-                    <Icon className={`w-5 h-5 ${isSel ? 'text-brand-500' : 'text-neutral-500'}`} aria-hidden="true" />
-                    <span className="text-xs">{m.label}</span>
+                    {isSel && (
+                      <motion.span
+                        layoutId="pos-payment-method-pill"
+                        layoutDependency={paymentMethod}
+                        transition={PILL_SPRING}
+                        aria-hidden="true"
+                        className="absolute -inset-px z-[1] border border-brand-600 bg-brand-600/15"
+                        style={{ borderRadius: 16 }}
+                      />
+                    )}
+                    <Icon className={`relative z-10 w-5 h-5 ${isSel ? 'text-brand-500' : 'text-neutral-500'}`} aria-hidden="true" />
+                    <span className="relative z-10 text-xs">{m.label}</span>
                   </button>
                 );
               })}
@@ -203,7 +217,7 @@ export default function PaymentModal() {
                     </span>
                   </div>
                   <span className="font-display font-black text-base">
-                    {formatRupiah(Math.abs(change))}
+                    <Money value={Math.abs(change)} />
                   </span>
                 </div>
               )}

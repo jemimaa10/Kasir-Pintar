@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { X, Banknote, Landmark, CreditCard, ArrowLeftRight, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import CarImage from './CarImage';
 import CreditSimulator from './CreditSimulator';
+import Money from './Money';
 import { LEASING_PARTNERS } from '../data/initialData';
 import { estimateCarPrice, getCarName } from '../utils/carUtils';
 import { formatRupiah } from '../utils/formatters';
@@ -13,6 +15,8 @@ const METHODS = [
   { id: 'transfer', label: 'Transfer', icon: Landmark },
   { id: 'credit', label: 'Kredit', icon: CreditCard },
 ];
+
+const PILL_SPRING = { type: 'spring', bounce: 0.15, duration: 0.35 };
 
 export default function CarCheckoutModal() {
   const { checkoutCar, closeCarCheckout, sellCar, sellRequests, storeInfo } = useApp();
@@ -156,9 +160,9 @@ export default function CarCheckoutModal() {
 
   const summaryRows = [
     { label: 'Harga Mobil', value: formatRupiah(price) },
-    safeDiscount > 0 && { label: 'Diskon', value: `− ${formatRupiah(safeDiscount)}`, accent: true },
-    { label: 'Total', value: formatRupiah(total), bold: true },
-    appliedTradeIn > 0 && { label: 'Tukar Tambah', value: `− ${formatRupiah(appliedTradeIn)}`, accent: true },
+    safeDiscount > 0 && { label: 'Diskon', value: <>{'− '}<Money value={safeDiscount} /></>, accent: true },
+    { label: 'Total', value: <Money value={total} />, bold: true },
+    appliedTradeIn > 0 && { label: 'Tukar Tambah', value: <>{'− '}<Money value={appliedTradeIn} /></>, accent: true },
   ].filter(Boolean);
 
   return (
@@ -312,23 +316,36 @@ export default function CarCheckoutModal() {
             {/* Metode pembayaran */}
             <div>
               <span className="a18-label">Metode Pembayaran</span>
-              <div className="grid grid-cols-3 gap-2">
-                {METHODS.map(({ id, label, icon: Icon }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setPaymentMethod(id)}
-                    aria-pressed={paymentMethod === id}
-                    className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-bold transition-colors ${
-                      paymentMethod === id
-                        ? 'border-brand-500 bg-brand-600 text-white'
-                        : 'border-white/15 text-neutral-300 hover:border-white/40 hover:text-white'
-                    }`}
-                  >
-                    <Icon className="h-5 w-5" aria-hidden="true" />
-                    {label}
-                  </button>
-                ))}
+              <div className="isolate grid grid-cols-3 gap-2">
+                {METHODS.map(({ id, label, icon: Icon }) => {
+                  const isSelected = paymentMethod === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setPaymentMethod(id)}
+                      aria-pressed={isSelected}
+                      className={`relative flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-bold transition-colors ${
+                        isSelected
+                          ? 'border-transparent text-white'
+                          : 'border-white/15 text-neutral-300 hover:border-white/40 hover:text-white'
+                      }`}
+                    >
+                      {isSelected && (
+                        <motion.span
+                          layoutId="checkout-method-pill"
+                          layoutDependency={paymentMethod}
+                          transition={PILL_SPRING}
+                          aria-hidden="true"
+                          className="absolute -inset-px z-[1] border border-brand-500 bg-brand-600"
+                          style={{ borderRadius: 12 }}
+                        />
+                      )}
+                      <Icon className="relative z-10 h-5 w-5" aria-hidden="true" />
+                      <span className="relative z-10">{label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -415,14 +432,14 @@ export default function CarCheckoutModal() {
 
               <div className="mt-4 rounded-2xl border border-brand-600/40 bg-brand-950/40 p-4">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-brand-300">Sisa Bayar</p>
-                <p className="font-display text-2xl font-black text-white">{formatRupiah(amountDue)}</p>
+                <p className="font-display text-2xl font-black text-white"><Money value={amountDue} /></p>
               </div>
 
               {paymentMethod === 'cash' && (
                 <div className="mt-3 flex items-center justify-between text-sm">
                   <span className="text-neutral-400">Kembalian</span>
                   <span className="font-bold text-white">
-                    {formatRupiah(Math.max(0, (Number.isFinite(effectivePaid) ? effectivePaid : 0) - amountDue))}
+                    <Money value={Math.max(0, (Number.isFinite(effectivePaid) ? effectivePaid : 0) - amountDue)} />
                   </span>
                 </div>
               )}
@@ -431,12 +448,12 @@ export default function CarCheckoutModal() {
                 <dl className="mt-3 space-y-2 text-sm">
                   <div className="flex items-center justify-between">
                     <dt className="text-neutral-400">DP ({creditSim.dpPercent}%)</dt>
-                    <dd className="font-bold text-white">{formatRupiah(creditSim.dpAmount)}</dd>
+                    <dd className="font-bold text-white"><Money value={creditSim.dpAmount} /></dd>
                   </div>
                   <div className="flex items-center justify-between">
                     <dt className="text-neutral-400">Cicilan</dt>
                     <dd className="font-bold text-white">
-                      {formatRupiah(creditSim.monthly)} × {creditSim.tenorMonths} bln
+                      <Money value={creditSim.monthly} /> × {creditSim.tenorMonths} bln
                     </dd>
                   </div>
                   <div className="flex items-center justify-between">

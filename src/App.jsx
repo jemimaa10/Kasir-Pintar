@@ -1,4 +1,5 @@
 import React from 'react';
+import { MotionConfig } from 'motion/react';
 import { AppProvider, useApp } from './context/AppContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -48,8 +49,12 @@ function MainLayout() {
 
 export default function App() {
   return (
-    <AppProvider>
-      <MainLayout />
-    </AppProvider>
+    // reducedMotion="user": animasi transform/layout otomatis dimatikan bila
+    // pengguna menyalakan "kurangi gerakan" di pengaturan sistem operasinya
+    <MotionConfig reducedMotion="user">
+      <AppProvider>
+        <MainLayout />
+      </AppProvider>
+    </MotionConfig>
   );
 }
