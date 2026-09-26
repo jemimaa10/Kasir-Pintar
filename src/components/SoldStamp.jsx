@@ -8,7 +8,8 @@ import { motion } from 'motion/react';
 // - Tekstur tinta (tepi kasar, bintik & kepadatan tinta tidak rata) dibuat dari
 //   filter SVG inline per instance — tanpa file gambar.
 
-// Kemiringan akhir stempel (derajat)
+// Kemiringan akhir stempel (derajat). Jika diubah, samakan juga aturan
+// "#printable-receipt .a18-stamp-press" di bagian @media print src/index.css.
 const TILT = -10;
 
 // Nama kelas ditulis utuh agar tidak ikut dibuang oleh purge Tailwind.
@@ -30,10 +31,10 @@ const SLAM_FROM = { opacity: 0, scale: 2, rotate: TILT + 6 };
 // Pegas cepat dengan sedikit overshoot (skala turun sedikit di bawah 1 lalu kembali) ≈ 450ms.
 // Jeda kecil agar hentakan terbaca sebagai aksi terpisah setelah struk/kartu muncul.
 const SLAM_DELAY = 0.12;
-const SLAM_TRANSITION = {
-  default: { type: 'spring', duration: 0.45, bounce: 0.3, delay: SLAM_DELAY },
-  opacity: { duration: 0.1, ease: 'easeOut', delay: SLAM_DELAY }
-};
+const slamTransition = (delay) => ({
+  default: { type: 'spring', duration: 0.45, bounce: 0.3, delay },
+  opacity: { duration: 0.1, ease: 'easeOut', delay }
+});
 
 /**
  * true bila isoDate berada dalam windowMs dari sekarang — dipakai untuk
@@ -47,7 +48,10 @@ export function isFreshSale(isoDate, windowMs = 30000) {
   return Math.abs(Date.now() - time) <= limit;
 }
 
-export default function SoldStamp({ label = 'TERJUAL', size = 'md', animate = false, className = '' }) {
+/**
+ * delay (detik): jeda sebelum hentakan — mis. menunggu kertas struk selesai "tercetak".
+ */
+export default function SoldStamp({ label = 'TERJUAL', size = 'md', animate = false, className = '', delay = SLAM_DELAY }) {
   // ID filter unik per instance; karakter ":" dari useId dibuang agar aman di url(#...)
   const reactId = useId();
   const filterId = `a18-ink-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
@@ -106,7 +110,7 @@ export default function SoldStamp({ label = 'TERJUAL', size = 'md', animate = fa
         className="a18-stamp-press"
         initial={animate ? SLAM_FROM : false}
         animate={REST}
-        transition={SLAM_TRANSITION}
+        transition={slamTransition(Number.isFinite(delay) ? Math.max(0, delay) : SLAM_DELAY)}
       >
         <span
           className={`a18-stamp ${config.className}${isLong ? ' a18-stamp--long' : ''}`}

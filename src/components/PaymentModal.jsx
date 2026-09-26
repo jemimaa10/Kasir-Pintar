@@ -11,6 +11,7 @@ import {
 import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { formatRupiah } from '../utils/formatters';
+import { toast } from '../utils/toast';
 import Money from './Money';
 
 const PILL_SPRING = { type: 'spring', bounce: 0.15, duration: 0.35 };
@@ -60,7 +61,7 @@ export default function PaymentModal() {
     e?.preventDefault();
     if (paymentMethod === 'cash') {
       if (!isCashSufficient) {
-        alert('Nominal uang bayar masih kurang!');
+        toast.error('Nominal uang bayar masih kurang!');
         return;
       }
       completeTransaction({

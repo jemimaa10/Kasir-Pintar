@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   X,
   Printer,
@@ -8,7 +9,14 @@ import {
 import { useApp } from '../context/AppContext';
 import { formatRupiah, formatDate } from '../utils/formatters';
 import { PAYMENT_METHOD_LABEL, formatKm, getCarName } from '../utils/carUtils';
+import { toast } from '../utils/toast';
 import SoldStamp, { isFreshSale } from './SoldStamp';
+
+// Struk yang baru dibuat "keluar" dari slot printer thermal; stempel baru menghentak
+// setelah kertasnya mendarat. Struk yang dibuka ulang (Laporan/Dashboard) langsung tampil.
+const PRINT_DURATION = 0.7;
+const PRINT_TRANSITION = { duration: PRINT_DURATION, ease: [0.22, 1, 0.36, 1] };
+const STAMP_AFTER_PRINT = PRINT_DURATION + 0.08;
 
 // Baris "label : nilai" di dalam kertas struk (tetap putih–hitam untuk printer thermal)
 function ReceiptRow({ label, value, strong = false, accent = false }) {
@@ -31,6 +39,15 @@ export default function ReceiptModal() {
     setActiveTab
   } = useApp();
 
+  // Hasil "Salin" juga diumumkan dari DALAM dialog: dialog ini aria-modal, jadi toast
+  // (di luar dialog) bisa diabaikan pembaca layar. Dikosongkan tiap nota berganti.
+  const [copyNote, setCopyNote] = useState('');
+  useEffect(() => { setCopyNote(''); }, [currentReceipt?.id, isReceiptModalOpen]);
+  const announceCopy = (text) => {
+    setCopyNote('');
+    setTimeout(() => setCopyNote(text), 60);
+  };
+
   if (!isReceiptModalOpen || !currentReceipt) return null;
 
   const isCarSale = currentReceipt.saleType === 'car';
@@ -43,6 +60,8 @@ export default function ReceiptModal() {
   const amountDue = Number.isFinite(currentReceipt.amountDue) ? currentReceipt.amountDue : (currentReceipt.total || 0);
   const isVoided = currentReceipt.status === 'void';
   const shopName = (storeInfo.name || 'AUTO18').trim();
+  // Baru saja dibuat (penjualan mobil maupun transaksi kasir) → animasi cetak
+  const isFresh = isFreshSale(currentReceipt.date);
 
   const handlePrint = () => {
     window.print();
@@ -110,8 +129,17 @@ ${body}
 ================================
 ${storeInfo.receiptFooter}
 `;
-    navigator.clipboard.writeText(text);
-    alert('Struk teks berhasil disalin ke clipboard!');
+    const fail = (msg) => { toast.error(msg); announceCopy(msg); };
+    if (!navigator.clipboard?.writeText) {
+      fail('Browser ini tidak mengizinkan menyalin otomatis.');
+      return;
+    }
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        toast.success('Struk teks berhasil disalin ke clipboard!');
+        announceCopy('Struk teks berhasil disalin ke clipboard!');
+      })
+      .catch(() => fail('Gagal menyalin struk. Coba lagi.'));
   };
 
   return (
@@ -122,6 +150,7 @@ ${storeInfo.receiptFooter}
         aria-label={isCarSale ? 'Nota penjualan kendaraan' : 'Struk transaksi'}
         className="bg-ink-800 border border-white/10 rounded-3xl shadow-2xl max-w-md w-full overflow-hidden flex flex-col max-h-[92vh]"
       >
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{copyNote}</p>
 
         {/* Banner sukses */}
         <div className="a18-stripes-soft p-4 flex items-center justify-between gap-2">
@@ -146,6 +175,23 @@ ${storeInfo.receiptFooter}
         {/* Kertas struk (tetap putih untuk printer thermal) */}
         {/* overflow-x-hidden: stempel yang sedang "dihentakkan" (skala 2x) tidak memunculkan scrollbar horizontal */}
         <div className="p-4 sm:p-6 overflow-x-hidden overflow-y-auto flex-1 bg-ink-900">
+          {/* Slot printer thermal: kertas seolah keluar dari celah ini */}
+          <div
+            aria-hidden="true"
+            className="relative z-10 mx-auto h-3 max-w-[344px] rounded-full bg-black ring-1 ring-white/15 shadow-[inset_0_2px_4px_rgba(0,0,0,0.9)]"
+          >
+            <span className="absolute right-3 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-brand-500" />
+          </div>
+          {/* Pembungkus memotong bagian kertas yang masih "di dalam printer"; puncaknya
+              tepat di tengah slot. Saat dicetak ke kertas sungguhan, potongan & geseran
+              ini dinetralkan lewat CSS print (.a18-print-feed). */}
+          <div className="a18-print-feed -mt-1.5 overflow-hidden">
+          <motion.div
+            className="a18-print-feed"
+            initial={isFresh ? { y: '-100%' } : false}
+            animate={{ y: 0 }}
+            transition={PRINT_TRANSITION}
+          >
           <div
             id="printable-receipt"
             className="relative bg-white p-5 rounded-xl border border-dashed border-slate-300 font-mono text-xs text-slate-800 space-y-2.5 mx-auto max-w-[320px]"
@@ -226,7 +272,8 @@ ${storeInfo.receiptFooter}
                       key={currentReceipt.id || currentReceipt.code}
                       label="TERJUAL"
                       size="lg"
-                      animate={isFreshSale(currentReceipt.date)}
+                      animate={isFresh}
+                      delay={STAMP_AFTER_PRINT}
                       className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 !mt-0 mix-blend-multiply"
                     />
                   )}
@@ -336,6 +383,8 @@ ${storeInfo.receiptFooter}
               />
             )}
 
+          </div>
+          </motion.div>
           </div>
         </div>
 

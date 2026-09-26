@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Search,
   Plus,
@@ -10,7 +10,8 @@ import {
   PackageOpen,
   Wrench
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion, useAnimationControls, useIsPresent } from 'motion/react';
+import NumberFlow from '@number-flow/react';
 import { useApp } from '../context/AppContext';
 import { formatRupiah } from '../utils/formatters';
 import Money from './Money';
@@ -21,6 +22,150 @@ const DISCOUNT_TYPES = [
 ];
 
 const PILL_SPRING = { type: 'spring', bounce: 0.15, duration: 0.35 };
+
+// Baris keranjang: masuk bergeser dari kanan, keluar dengan tinggi mengempis sambil memudar.
+// Baris di bawahnya ikut naik mulus karena tinggi baris yang keluar menyusut per frame.
+// height: 'auto' di ROW_ANIMATE memulihkan tinggi bila barang ditambah lagi saat barisnya
+// masih mengempis. Opacity & tinggi tetap beranimasi untuk reduced motion (hanya x yang
+// dimatikan MotionConfig), jadi keadaan akhirnya sama persis.
+const ROW_INITIAL = { opacity: 0, x: 12 };
+const ROW_ANIMATE = { opacity: 1, x: 0, height: 'auto' };
+const ROW_EXIT = { opacity: 0, height: 0, transition: { duration: 0.18, ease: 'easeOut' } };
+const ROW_TRANSITION = { default: PILL_SPRING, opacity: { duration: 0.15, ease: 'easeOut' } };
+
+// Cadangan: tampilkan "Keranjang Masih Kosong" walau onExitComplete tidak sempat terpanggil
+const EMPTY_FALLBACK_MS = 600;
+const EMPTY_FADE = { duration: 0.15, ease: 'easeOut' };
+
+// Lonjakan kecil kotak jumlah di kartu barang saat barang ditambahkan (null = mulai dari
+// skala saat ini, supaya klik beruntun tidak membuat kotak melompat balik ke 1)
+const BADGE_POP = { duration: 0.28, times: [0, 0.4, 1], ease: ['easeOut', 'easeInOut'] };
+
+// Angka jumlah berganti cepat, sejalan dengan Money (tidak lebih lambat dari ~450 ms)
+const COUNT_TIMING = { duration: 350, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' };
+const COUNT_OPACITY_TIMING = { duration: 150, easing: 'ease-out' };
+
+/**
+ * Bilangan bulat yang bergulir saat berubah (jumlah item / qty). Seperti Money: NumberFlow
+ * disembunyikan dari pembaca layar (ia melaporkan diri sebagai role="img") dan diganti
+ * salinan teks biasa di span sr-only, sehingga textContent tetap mis. "3 item dipilih".
+ */
+function RollingCount({ value }) {
+  return (
+    <>
+      <NumberFlow
+        aria-hidden="true"
+        value={value}
+        locales="id-ID"
+        transformTiming={COUNT_TIMING}
+        opacityTiming={COUNT_OPACITY_TIMING}
+      />
+      <span className="sr-only">{value}</span>
+    </>
+  );
+}
+
+/**
+ * Kotak kecil di kartu barang: ikon + saat belum di keranjang, angka qty saat sudah.
+ * Satu elemen untuk kedua keadaan supaya lonjakan juga terjadi saat barang pertama kali
+ * masuk (0 -> 1). Tidak beranimasi saat halaman dimuat / kartu muncul lagi karena filter.
+ */
+function TileCartBadge({ qty }) {
+  const controls = useAnimationControls();
+  const prevQtyRef = useRef(qty);
+
+  useEffect(() => {
+    const prevQty = prevQtyRef.current;
+    prevQtyRef.current = qty;
+    // Hanya saat jumlah bertambah (barang ditambahkan), bukan saat dikurangi/dihapus
+    if (qty > prevQty) {
+      controls.start({ scale: [null, 1.25, 1], transition: BADGE_POP });
+    }
+  }, [qty, controls]);
+
+  const isInCart = qty > 0;
+  return (
+    <motion.span
+      animate={controls}
+      className={
+        isInCart
+          ? 'w-8 h-8 shrink-0 rounded-xl bg-brand-600 text-white font-black text-xs flex items-center justify-center'
+          : 'w-8 h-8 shrink-0 rounded-xl bg-white/5 text-neutral-300 group-hover:bg-brand-600 group-hover:text-white flex items-center justify-center transition-colors'
+      }
+    >
+      {isInCart ? qty : <Plus className="w-4 h-4" aria-hidden="true" />}
+    </motion.span>
+  );
+}
+
+/** Satu baris keranjang. Anak langsung AnimatePresence, jadi bisa beranimasi keluar. */
+function CartRow({ item, onDecrease, onIncrease, onRemove }) {
+  // false selama baris mengempis setelah dihapus
+  const isPresent = useIsPresent();
+
+  return (
+    <motion.div
+      initial={ROW_INITIAL}
+      animate={ROW_ANIMATE}
+      exit={ROW_EXIT}
+      transition={ROW_TRANSITION}
+      // clip (bukan hidden) hanya di sumbu Y: isi terpotong saat tinggi mengempis, tetapi
+      // cincin fokus tombol hapus di tepi kanan tidak ikut terpotong
+      className="overflow-y-clip"
+    >
+      <div
+        // inert saat mengempis: tombol baris yang sudah dihapus tidak bisa difokus/diklik lagi
+        // (React 18: '' memasang atribut, undefined melepas)
+        inert={isPresent ? undefined : ''}
+        className={`py-3 flex items-center justify-between gap-2 ${isPresent ? '' : 'pointer-events-none'}`}
+      >
+        <div className="flex-1 min-w-0">
+          <h5 className="font-semibold text-sm text-white truncate" title={item.name}>
+            {item.name}
+          </h5>
+          <div className="flex items-center gap-2 text-xs text-neutral-500 mt-0.5">
+            <span>{formatRupiah(item.price)}</span>
+            <span aria-hidden="true">•</span>
+            <Money value={item.price * item.qty} className="font-bold text-neutral-200" />
+          </div>
+        </div>
+
+        {/* Kontrol jumlah */}
+        <div className="flex items-center gap-1.5 bg-white/5 p-1 rounded-xl shrink-0">
+          <button
+            type="button"
+            onClick={onDecrease}
+            aria-label={`Kurangi jumlah ${item.name}`}
+            className="w-6 h-6 rounded-lg bg-ink-600 hover:bg-brand-600 text-white flex items-center justify-center transition-colors"
+          >
+            <Minus className="w-3 h-3" aria-hidden="true" />
+          </button>
+          <span className="w-7 text-center font-bold text-xs text-white">
+            <RollingCount value={item.qty} />
+          </span>
+          <button
+            type="button"
+            onClick={onIncrease}
+            aria-label={`Tambah jumlah ${item.name}`}
+            className="w-6 h-6 rounded-lg bg-ink-600 hover:bg-brand-600 text-white flex items-center justify-center transition-colors"
+          >
+            <Plus className="w-3 h-3" aria-hidden="true" />
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={onRemove}
+          className="p-1.5 shrink-0 text-neutral-500 hover:text-brand-400 rounded-lg transition-colors"
+          title="Hapus item"
+          aria-label={`Hapus ${item.name} dari keranjang`}
+        >
+          <Trash2 className="w-4 h-4" aria-hidden="true" />
+        </button>
+      </div>
+    </motion.div>
+  );
+}
 
 export default function PosTerminal() {
   const {
@@ -46,6 +191,29 @@ export default function PosTerminal() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+
+  // Saat keranjang menjadi kosong (hapus item terakhir / Kosongkan / transaksi selesai),
+  // baris-barisnya masih mengempis ±180 ms. "Keranjang Masih Kosong" baru ditampilkan
+  // setelah itu supaya tidak bertumpuk dengan baris yang sedang keluar. Disesuaikan saat
+  // render (bukan di effect) agar tidak ada satu frame pun keduanya tampil bersamaan.
+  const [prevCartLength, setPrevCartLength] = useState(cart.length);
+  const [rowsLeaving, setRowsLeaving] = useState(false);
+  // Keadaan kosong hanya memudar masuk bila muncul karena keranjang dikosongkan,
+  // bukan saat halaman kasir pertama kali dibuka
+  const [emptyFadesIn, setEmptyFadesIn] = useState(false);
+  if (cart.length !== prevCartLength) {
+    const becameEmpty = prevCartLength > 0 && cart.length === 0;
+    setPrevCartLength(cart.length);
+    setRowsLeaving(becameEmpty);
+    if (becameEmpty) setEmptyFadesIn(true);
+  }
+  const showEmptyCart = cart.length === 0 && !rowsLeaving;
+
+  useEffect(() => {
+    if (!rowsLeaving) return undefined;
+    const timer = setTimeout(() => setRowsLeaving(false), EMPTY_FALLBACK_MS);
+    return () => clearTimeout(timer);
+  }, [rowsLeaving]);
 
   // Filter products by category and search
   const filteredProducts = useMemo(() => {
@@ -75,7 +243,7 @@ export default function PosTerminal() {
         </div>
         <div className="a18-pill shrink-0 px-5 py-3 text-center">
           <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Keranjang</p>
-          <p className="font-display text-xl font-black text-white">{cartItemsCount} item</p>
+          <p className="font-display text-xl font-black text-white"><RollingCount value={cartItemsCount} /> item</p>
         </div>
       </div>
 
@@ -210,15 +378,7 @@ export default function PosTerminal() {
                         </span>
                       </div>
 
-                      {inCart ? (
-                        <span className="w-8 h-8 shrink-0 rounded-xl bg-brand-600 text-white font-black text-xs flex items-center justify-center">
-                          {inCart.qty}
-                        </span>
-                      ) : (
-                        <span className="w-8 h-8 shrink-0 rounded-xl bg-white/5 text-neutral-300 group-hover:bg-brand-600 group-hover:text-white flex items-center justify-center transition-colors">
-                          <Plus className="w-4 h-4" aria-hidden="true" />
-                        </span>
-                      )}
+                      <TileCartBadge qty={inCart ? inCart.qty : 0} />
                     </div>
                   </button>
                 );
@@ -239,7 +399,7 @@ export default function PosTerminal() {
                 </span>
                 <div className="min-w-0">
                   <h2 className="font-display font-black uppercase tracking-wide text-white text-base">Keranjang Kasir</h2>
-                  <p className="text-xs text-neutral-400">{cartItemsCount} item dipilih</p>
+                  <p className="text-xs text-neutral-400"><RollingCount value={cartItemsCount} /> item dipilih</p>
                 </div>
               </div>
               {cart.length > 0 && (
@@ -255,9 +415,16 @@ export default function PosTerminal() {
             </div>
 
             {/* Daftar item */}
-            <div className="flex-1 overflow-y-auto p-4 min-h-[8rem] lg:min-h-0">
-              {cart.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center py-8">
+            {/* overflow-x-hidden: baris yang masuk bergeser 12px dari kanan tanpa memunculkan
+                scrollbar horizontal sesaat */}
+            <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 min-h-[8rem] lg:min-h-0">
+              {showEmptyCart && (
+                <motion.div
+                  initial={emptyFadesIn ? { opacity: 0 } : false}
+                  animate={{ opacity: 1 }}
+                  transition={EMPTY_FADE}
+                  className="h-full flex flex-col items-center justify-center text-center py-8"
+                >
                   <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-3 text-neutral-600">
                     <Wrench className="w-8 h-8" aria-hidden="true" />
                   </div>
@@ -265,56 +432,26 @@ export default function PosTerminal() {
                   <p className="text-xs text-neutral-500 mt-1 max-w-xs">
                     Pilih oli, aki, ban, aksesoris, atau jasa showroom di katalog untuk memulai transaksi.
                   </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-white/10">
-                  {cart.map(item => (
-                    <div key={item.id} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <h5 className="font-semibold text-sm text-white truncate" title={item.name}>
-                          {item.name}
-                        </h5>
-                        <div className="flex items-center gap-2 text-xs text-neutral-500 mt-0.5">
-                          <span>{formatRupiah(item.price)}</span>
-                          <span aria-hidden="true">•</span>
-                          <span className="font-bold text-neutral-200">{formatRupiah(item.price * item.qty)}</span>
-                        </div>
-                      </div>
-
-                      {/* Kontrol jumlah */}
-                      <div className="flex items-center gap-1.5 bg-white/5 p-1 rounded-xl shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => updateCartQty(item.id, item.qty - 1)}
-                          aria-label={`Kurangi jumlah ${item.name}`}
-                          className="w-6 h-6 rounded-lg bg-ink-600 hover:bg-brand-600 text-white flex items-center justify-center transition-colors"
-                        >
-                          <Minus className="w-3 h-3" aria-hidden="true" />
-                        </button>
-                        <span className="w-7 text-center font-bold text-xs text-white">{item.qty}</span>
-                        <button
-                          type="button"
-                          onClick={() => updateCartQty(item.id, item.qty + 1)}
-                          aria-label={`Tambah jumlah ${item.name}`}
-                          className="w-6 h-6 rounded-lg bg-ink-600 hover:bg-brand-600 text-white flex items-center justify-center transition-colors"
-                        >
-                          <Plus className="w-3 h-3" aria-hidden="true" />
-                        </button>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => removeFromCart(item.id)}
-                        className="p-1.5 shrink-0 text-neutral-500 hover:text-brand-400 rounded-lg transition-colors"
-                        title="Hapus item"
-                        aria-label={`Hapus ${item.name} dari keranjang`}
-                      >
-                        <Trash2 className="w-4 h-4" aria-hidden="true" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                </motion.div>
               )}
+              {/* Daftar tetap terpasang (hanya disembunyikan saat kosong) supaya AnimatePresence
+                  tidak ikut di-mount ulang: baris pertama tetap bergeser masuk, dan baris
+                  terakhir tetap bisa mengempis keluar. -my-3 menggantikan first:pt-0/last:pb-0
+                  lama (jarak tepi tetap 16px) sehingga tidak ada lompatan padding saat baris
+                  pertama/terakhir selesai keluar. */}
+              <div className={`-my-3 divide-y divide-white/10 ${showEmptyCart ? 'hidden' : ''}`}>
+                <AnimatePresence initial={false} onExitComplete={() => setRowsLeaving(false)}>
+                  {cart.map(item => (
+                    <CartRow
+                      key={item.id}
+                      item={item}
+                      onDecrease={() => updateCartQty(item.id, item.qty - 1)}
+                      onIncrease={() => updateCartQty(item.id, item.qty + 1)}
+                      onRemove={() => removeFromCart(item.id)}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
             </div>
 
             {/* Diskon, total & checkout */}
@@ -421,7 +558,7 @@ export default function PosTerminal() {
           <div className="mx-auto flex max-w-7xl items-center gap-3">
             <div className="min-w-0 flex-1">
               <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">
-                {cartItemsCount} item
+                <RollingCount value={cartItemsCount} /> item
               </p>
               {/* NumberFlow = inline-block nowrap: tanpa elipsis, tapi s.d. Rp 9.999.999.999 (~180px) muat di layar 360px */}
               <p className="truncate font-display text-lg font-black text-white"><Money value={cartTotal} /></p>

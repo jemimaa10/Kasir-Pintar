@@ -16,6 +16,7 @@ import ReceiptModal from './components/ReceiptModal';
 import SettingsModal from './components/SettingsModal';
 import CarDetailModal from './components/CarDetailModal';
 import CarCheckoutModal from './components/CarCheckoutModal';
+import Toaster from './components/Toaster';
 
 function MainLayout() {
   const { activeTab } = useApp();
@@ -55,6 +56,8 @@ export default function App() {
       <AppProvider>
         <MainLayout />
       </AppProvider>
+      {/* Notifikasi toast (pengganti alert) — dirender sekali, di atas semua modal */}
+      <Toaster />
     </MotionConfig>
   );
 }

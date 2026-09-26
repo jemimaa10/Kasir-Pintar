@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   Plus, Search, Pencil, Trash2, Star, Receipt, Eye, CarFront, Wallet, TrendingUp,
   CalendarCheck, Phone, MapPin, ArrowLeftRight, CheckCircle2, XCircle, ClipboardList
@@ -11,6 +12,18 @@ import {
   CAR_STATUS, SELL_REQUEST_STATUS, TEST_DRIVE_STATUS, estimateCarPrice, formatKm, formatRupiahShort, getCarName
 } from '../utils/carUtils';
 import { formatDate, formatRupiah } from '../utils/formatters';
+import { toast } from '../utils/toast';
+
+// Latar tab aktif bergeser ke tab yang baru dipilih (layoutId yang sama)
+const TAB_SPRING = { type: 'spring', bounce: 0.15, duration: 0.35 };
+// Sudut atas mengikuti rounded-t-xl tombol. Radius lewat style agar Motion
+// mengoreksinya terhadap skala saat latar melebar/menyempit ke tab lain.
+const TAB_PILL_RADIUS = {
+  borderTopLeftRadius: 12,
+  borderTopRightRadius: 12,
+  borderBottomLeftRadius: 0,
+  borderBottomRightRadius: 0,
+};
 
 const todayLocal = () => {
   const d = new Date();
@@ -117,7 +130,7 @@ export default function CarInventory() {
   const openReceipt = (car) => {
     const trx = transactions.find(t => t.id === car.soldTransactionId);
     if (!trx) {
-      alert('Nota penjualan tidak ditemukan.');
+      toast.error('Nota penjualan tidak ditemukan.');
       return;
     }
     setCurrentReceipt(trx);
@@ -298,22 +311,33 @@ export default function CarInventory() {
         />
       </div>
 
-      {/* Tab */}
-      <div className="mt-6 flex gap-2 overflow-x-auto border-b border-white/10 pb-px">
+      {/* Tab — isolate: z-index latar & teks tidak bocor keluar baris tab */}
+      <div className="isolate mt-6 flex gap-2 overflow-x-auto border-b border-white/10 pb-px">
         {TABS.map(({ id, label, icon: Icon, badge }) => (
           <button
             key={id}
             type="button"
             onClick={() => setTab(id)}
             aria-current={tab === id ? 'page' : undefined}
-            className={`flex shrink-0 items-center gap-2 rounded-t-xl px-4 py-2.5 text-sm font-bold transition-colors ${
-              tab === id ? 'bg-brand-600 text-white' : 'text-neutral-400 hover:bg-white/5 hover:text-white'
+            className={`relative flex shrink-0 items-center gap-2 rounded-t-xl px-4 py-2.5 text-sm font-bold transition-colors ${
+              tab === id ? 'text-white' : 'text-neutral-400 hover:bg-white/5 hover:text-white'
             }`}
           >
-            <Icon className="h-4 w-4" aria-hidden="true" />
-            {label}
+            {tab === id && (
+              // layoutDependency: hanya bergeser saat tab diganti, bukan pada render ulang lain
+              <motion.span
+                layoutId="car-inventory-tab-pill"
+                layoutDependency={tab}
+                transition={TAB_SPRING}
+                aria-hidden="true"
+                className="absolute inset-0 z-[1] bg-brand-600"
+                style={TAB_PILL_RADIUS}
+              />
+            )}
+            <Icon className="relative z-10 h-4 w-4" aria-hidden="true" />
+            <span className="relative z-10">{label}</span>
             {badge > 0 && (
-              <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${tab === id ? 'bg-white text-brand-700' : 'bg-brand-600 text-white'}`}>
+              <span className={`relative z-10 rounded-full px-1.5 py-0.5 text-[10px] font-black ${tab === id ? 'bg-white text-brand-700' : 'bg-brand-600 text-white'}`}>
                 {badge}
               </span>
             )}
