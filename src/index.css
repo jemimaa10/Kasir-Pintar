@@ -84,6 +84,100 @@
   .a18-number {
     @apply font-display text-4xl font-black leading-none text-white;
   }
+
+  /* Stempel tinta karet (SoldStamp): bingkai ganda merah, huruf tebal renggang.
+     Elemen luar = posisi dari pemanggil; transformasi Motion di .a18-stamp-press. */
+  .a18-stamp-root {
+    display: inline-block;
+    vertical-align: middle;
+    line-height: 1;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .a18-stamp-defs {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+
+  .a18-stamp-press {
+    display: block;
+  }
+
+  .a18-stamp {
+    --stamp-font: 36px;
+    --stamp-outer: 5px;
+    --stamp-inner: 2px;
+    --stamp-gap: 4px;
+    --stamp-pad-x: 16px;
+    --stamp-pad-y: 9px;
+    --stamp-radius: 7px;
+    --stamp-scale: 1;
+    @apply font-display font-black uppercase;
+    display: block;
+    width: max-content;
+    padding: var(--stamp-gap);
+    border: var(--stamp-outer) solid currentColor;
+    border-radius: var(--stamp-radius);
+    color: #e41b1b;
+    opacity: 0.88;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .a18-stamp__rule {
+    display: block;
+    padding: var(--stamp-pad-y) var(--stamp-pad-x);
+    border: var(--stamp-inner) solid currentColor;
+    border-radius: calc(var(--stamp-radius) * 0.5);
+  }
+
+  .a18-stamp__label {
+    display: block;
+    font-size: calc(var(--stamp-font) * var(--stamp-scale));
+    line-height: 1;
+    letter-spacing: 0.12em;
+    margin-right: -0.12em;
+    white-space: nowrap;
+  }
+
+  /* sm: kartu foto ~290x180, md: foto besar di modal, lg: melintang di struk 320px */
+  .a18-stamp.a18-stamp--sm {
+    --stamp-font: 22px;
+    --stamp-outer: 3px;
+    --stamp-inner: 1px;
+    --stamp-gap: 2px;
+    --stamp-pad-x: 9px;
+    --stamp-pad-y: 5px;
+    --stamp-radius: 4px;
+  }
+
+  .a18-stamp.a18-stamp--md {
+    --stamp-font: 36px;
+    --stamp-outer: 5px;
+    --stamp-inner: 2px;
+    --stamp-gap: 4px;
+    --stamp-pad-x: 16px;
+    --stamp-pad-y: 9px;
+    --stamp-radius: 7px;
+  }
+
+  .a18-stamp.a18-stamp--lg {
+    --stamp-font: 28px;
+    --stamp-outer: 4px;
+    --stamp-inner: 1.5px;
+    --stamp-gap: 3px;
+    --stamp-pad-x: 13px;
+    --stamp-pad-y: 7px;
+    --stamp-radius: 6px;
+  }
+
+  /* Label panjang (mis. DIBATALKAN) sedikit dikecilkan agar muat */
+  .a18-stamp.a18-stamp--long {
+    --stamp-scale: 0.86;
+  }
 }
 
 /* Print styles for thermal receipts */

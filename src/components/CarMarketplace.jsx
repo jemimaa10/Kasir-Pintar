@@ -1,4 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import NumberFlow from '@number-flow/react';
 import {
   Search, SlidersHorizontal, X, Heart, ArrowRight, Car, ShieldCheck, Tag, RotateCcw
 } from 'lucide-react';
@@ -30,6 +32,22 @@ const SORT_OPTIONS = [
   { id: 'year-desc', label: 'Tahun Terbaru' },
 ];
 
+// Kartu hasil meluncur ke posisi barunya saat filter/urutan berubah (hanya posisi —
+// ukuran kartu sama, jadi isinya tidak ikut melar). Kartu baru muncul, kartu yang
+// tersaring keluar dengan cepat.
+const CARD_TRANSITION = {
+  type: 'spring',
+  bounce: 0.15,
+  duration: 0.35,
+  opacity: { duration: 0.2, ease: 'easeOut' },
+};
+const CARD_INITIAL = { opacity: 0, scale: 0.96 };
+const CARD_ANIMATE = { opacity: 1, scale: 1 };
+const CARD_EXIT = { opacity: 0, scale: 0.96, transition: { duration: 0.18, ease: 'easeIn' } };
+
+// Jumlah hasil berganti angka dengan cepat, tidak lebih lambat dari animasi kartu
+const COUNT_TIMING = { duration: 400, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' };
+
 const EMPTY_FILTERS = {
   keyword: '',
   brands: [],
@@ -46,8 +64,14 @@ const EMPTY_FILTERS = {
 };
 
 export default function CarMarketplace() {
-  const { cars, favoriteCarIds, setActiveTab } = useApp();
+  const { cars, favoriteCarIds, setActiveTab, selectedCar } = useApp();
   const [filters, setFilters] = useState(EMPTY_FILTERS);
+  // Selama detail mobil terbuka, grid memakai daftar favorit sebelum perubahan. Kalau
+  // tidak, menandai/membatalkan favorit di dalam modal (dengan filter "favorit saja")
+  // membuat kartu mobil itu keluar-masuk grid dan merebut foto bersama (layoutId) dari
+  // modal, sehingga foto di modal hilang. Grid menyusul saat modal ditutup.
+  const [filterFavoriteIds, setFilterFavoriteIds] = useState(favoriteCarIds);
+  if (!selectedCar && filterFavoriteIds !== favoriteCarIds) setFilterFavoriteIds(favoriteCarIds);
   const [sort, setSort] = useState('recommended');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [heroKeyword, setHeroKeyword] = useState('');
@@ -89,7 +113,7 @@ export default function CarMarketplace() {
 
     const result = cars.filter(car => {
       if (!filters.showSold && car.status === 'sold') return false;
-      if (filters.favoritesOnly && !favoriteCarIds.includes(car.id)) return false;
+      if (filters.favoritesOnly && !filterFavoriteIds.includes(car.id)) return false;
       if (keyword) {
         const haystack = `${car.brand} ${car.model} ${car.variant} ${car.year} ${car.code} ${car.bodyType}`.toLowerCase();
         if (!haystack.includes(keyword)) return false;
@@ -131,7 +155,7 @@ export default function CarMarketplace() {
           );
       }
     });
-  }, [cars, filters, favoriteCarIds, sort]);
+  }, [cars, filters, filterFavoriteIds, sort]);
 
   const featuredCar = useMemo(
     () => availableCars.find(c => c.isFeatured) || availableCars[0] || null,
@@ -470,7 +494,17 @@ export default function CarMarketplace() {
           <div>
             <h2 className="a18-heading text-2xl sm:text-3xl">Daftar Mobil</h2>
             <p className="mt-1 text-sm text-neutral-400">
-              <span className="font-bold text-white">{filteredCars.length}</span> mobil ditemukan
+              {/* Seperti Money: angka animasi disembunyikan dari pembaca layar (NumberFlow
+                  melaporkan dirinya sebagai gambar) dan diganti salinan teks biasa */}
+              <NumberFlow
+                aria-hidden="true"
+                value={filteredCars.length}
+                locales="id-ID"
+                transformTiming={COUNT_TIMING}
+                className="font-bold text-white"
+              />
+              <span className="sr-only">{filteredCars.length}</span>{' '}
+              mobil ditemukan
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -534,8 +568,26 @@ export default function CarMarketplace() {
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
-                {filteredCars.map(car => <CarCard key={car.id} car={car} />)}
+              // relative: kartu yang keluar (mode popLayout) diposisikan absolut terhadap grid ini
+              <div className="relative grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                <AnimatePresence mode="popLayout" initial={false}>
+                  {filteredCars.map(car => (
+                    <motion.div
+                      key={car.id}
+                      // Ukur ulang posisi hanya saat daftar hasil berubah, bukan pada setiap
+                      // render (mis. saat modal detail dibuka & scrollbar halaman hilang)
+                      layout="position"
+                      layoutDependency={filteredCars}
+                      initial={CARD_INITIAL}
+                      animate={CARD_ANIMATE}
+                      exit={CARD_EXIT}
+                      transition={CARD_TRANSITION}
+                      className="grid"
+                    >
+                      <CarCard car={car} />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
               </div>
             )}
           </div>

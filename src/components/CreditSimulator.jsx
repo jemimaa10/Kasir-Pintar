@@ -1,9 +1,13 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Calculator, Info } from 'lucide-react';
+import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { TENOR_OPTIONS } from '../data/initialData';
 import { calcInstallment } from '../utils/carUtils';
 import { formatRupiah } from '../utils/formatters';
+import Money from './Money';
+
+const PILL_SPRING = { type: 'spring', bounce: 0.15, duration: 0.35 };
 
 // `|| fallback` membuang 0 yang valid (promo DP 0% / bunga 0%); ini menjaga 0 dan
 // hanya jatuh ke fallback saat nilainya benar-benar kosong/tidak berupa angka.
@@ -51,10 +55,10 @@ export default function CreditSimulator({ price, onChange, initialDpPercent, ini
   }, [dpPercent, tenorMonths, annualRate, result]);
 
   const rows = [
-    { label: 'Uang Muka (DP)', value: formatRupiah(result.dpAmount) },
-    { label: 'Pokok Pinjaman', value: formatRupiah(result.principal) },
-    { label: 'Total Bunga', value: formatRupiah(result.totalInterest) },
-    { label: 'Total Pembayaran', value: formatRupiah(result.totalPayment) },
+    { label: 'Uang Muka (DP)', value: result.dpAmount },
+    { label: 'Pokok Pinjaman', value: result.principal },
+    { label: 'Total Bunga', value: result.totalInterest },
+    { label: 'Total Pembayaran', value: result.totalPayment },
   ];
 
   return (
@@ -74,7 +78,7 @@ export default function CreditSimulator({ price, onChange, initialDpPercent, ini
           <div className="flex items-center justify-between">
             <label htmlFor={`${uid}-dp`} className="a18-label mb-0">Uang Muka</label>
             <span className="text-xs font-bold text-white">
-              {dpPercent}% · {formatRupiah(result.dpAmount)}
+              {dpPercent}% · <Money value={result.dpAmount} />
             </span>
           </div>
           <input
@@ -96,22 +100,38 @@ export default function CreditSimulator({ price, onChange, initialDpPercent, ini
         {/* Tenor */}
         <div>
           <span className="a18-label">Tenor</span>
-          <div className="flex flex-wrap gap-2">
-            {TENOR_OPTIONS.map(tenor => (
-              <button
-                key={tenor}
-                type="button"
-                onClick={() => setTenorMonths(tenor)}
-                aria-pressed={tenorMonths === tenor}
-                className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-colors ${
-                  tenorMonths === tenor
-                    ? 'border-brand-500 bg-brand-600 text-white'
-                    : 'border-white/15 text-neutral-300 hover:border-white/40 hover:text-white'
-                }`}
-              >
-                {tenor} bln
-              </button>
-            ))}
+          {/* isolate: z-index pil & teks tidak bocor ke header sticky modal */}
+          <div className="isolate flex flex-wrap gap-2">
+            {TENOR_OPTIONS.map(tenor => {
+              const isSelected = tenorMonths === tenor;
+              return (
+                <button
+                  key={tenor}
+                  type="button"
+                  onClick={() => setTenorMonths(tenor)}
+                  aria-pressed={isSelected}
+                  className={`relative rounded-xl border px-3 py-1.5 text-xs font-bold transition-colors ${
+                    isSelected
+                      ? 'border-transparent text-white'
+                      : 'border-white/15 text-neutral-300 hover:border-white/40 hover:text-white'
+                  }`}
+                >
+                  {isSelected && (
+                    // layoutId unik per instance (useId): simulator bisa tampil dua kali sekaligus.
+                    // layoutDependency: hanya bergeser saat tenor diganti, bukan saat layout halaman berubah.
+                    <motion.span
+                      layoutId={`${uid}-tenor-pill`}
+                      layoutDependency={tenorMonths}
+                      transition={PILL_SPRING}
+                      aria-hidden="true"
+                      className="absolute -inset-px z-[1] border border-brand-500 bg-brand-600"
+                      style={{ borderRadius: 12 }}
+                    />
+                  )}
+                  <span className="relative z-10">{tenor} bln</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -134,7 +154,7 @@ export default function CreditSimulator({ price, onChange, initialDpPercent, ini
       {/* Hasil */}
       <div className="mt-5 rounded-2xl border border-brand-600/40 bg-brand-950/40 p-4">
         <p className="text-[10px] font-bold uppercase tracking-wider text-brand-300">Cicilan per Bulan</p>
-        <p className="font-display text-2xl font-black text-white sm:text-3xl">{formatRupiah(result.monthly)}</p>
+        <p className="font-display text-2xl font-black text-white sm:text-3xl"><Money value={result.monthly} /></p>
         <p className="mt-0.5 text-xs text-neutral-400">selama {tenorMonths} bulan</p>
       </div>
 
@@ -142,7 +162,7 @@ export default function CreditSimulator({ price, onChange, initialDpPercent, ini
         {rows.map(row => (
           <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
             <dt className="text-neutral-400">{row.label}</dt>
-            <dd className="font-semibold text-white">{row.value}</dd>
+            <dd className="font-semibold text-white"><Money value={row.value} /></dd>
           </div>
         ))}
       </dl>

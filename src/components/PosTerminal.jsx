@@ -10,8 +10,17 @@ import {
   PackageOpen,
   Wrench
 } from 'lucide-react';
+import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { formatRupiah } from '../utils/formatters';
+import Money from './Money';
+
+const DISCOUNT_TYPES = [
+  { id: 'nominal', label: 'Rp' },
+  { id: 'percent', label: '%' },
+];
+
+const PILL_SPRING = { type: 'spring', bounce: 0.15, duration: 0.35 };
 
 export default function PosTerminal() {
   const {
@@ -316,27 +325,33 @@ export default function PosTerminal() {
                 <div>
                   <span className="a18-label">Diskon Transaksi</span>
                   <div className="flex items-center gap-2">
-                    <div className="flex rounded-xl border border-white/15 p-0.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setDiscountType('nominal')}
-                        aria-pressed={discountType === 'nominal'}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
-                          discountType === 'nominal' ? 'bg-brand-600 text-white' : 'text-neutral-400 hover:text-white'
-                        }`}
-                      >
-                        Rp
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDiscountType('percent')}
-                        aria-pressed={discountType === 'percent'}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
-                          discountType === 'percent' ? 'bg-brand-600 text-white' : 'text-neutral-400 hover:text-white'
-                        }`}
-                      >
-                        %
-                      </button>
+                    <div className="isolate flex rounded-xl border border-white/15 p-0.5 shrink-0">
+                      {DISCOUNT_TYPES.map(({ id, label }) => {
+                        const isSelected = discountType === id;
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => setDiscountType(id)}
+                            aria-pressed={isSelected}
+                            className={`relative px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
+                              isSelected ? 'text-white' : 'text-neutral-400 hover:text-white'
+                            }`}
+                          >
+                            {isSelected && (
+                              <motion.span
+                                layoutId="pos-discount-type-pill"
+                                layoutDependency={discountType}
+                                transition={PILL_SPRING}
+                                aria-hidden="true"
+                                className="absolute inset-0 z-[1] bg-brand-600"
+                                style={{ borderRadius: 8 }}
+                              />
+                            )}
+                            <span className="relative z-10">{label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                     <input
                       type="number"
@@ -354,7 +369,7 @@ export default function PosTerminal() {
                 <div className="space-y-1.5 text-xs text-neutral-400">
                   <div className="flex justify-between">
                     <span>Subtotal</span>
-                    <span className="font-semibold text-white">{formatRupiah(cartSubtotal)}</span>
+                    <span className="font-semibold text-white"><Money value={cartSubtotal} /></span>
                   </div>
                   {cartDiscount > 0 && (
                     <div className="flex justify-between text-brand-400">
@@ -368,18 +383,18 @@ export default function PosTerminal() {
                           Batal
                         </button>
                       </span>
-                      <span className="font-semibold">-{formatRupiah(cartDiscount)}</span>
+                      <span className="font-semibold">-<Money value={cartDiscount} /></span>
                     </div>
                   )}
                   {storeInfo.taxEnabled && (
                     <div className="flex justify-between">
                       <span>PPN ({storeInfo.taxRate}%)</span>
-                      <span className="font-semibold text-white">{formatRupiah(cartTax)}</span>
+                      <span className="font-semibold text-white"><Money value={cartTax} /></span>
                     </div>
                   )}
                   <div className="flex items-baseline justify-between gap-2 pt-2 border-t border-white/10">
                     <span className="font-display text-sm font-black uppercase tracking-wide text-white">Total Bayar</span>
-                    <span className="font-display text-xl font-black text-white">{formatRupiah(cartTotal)}</span>
+                    <span className="font-display text-xl font-black text-white"><Money value={cartTotal} /></span>
                   </div>
                 </div>
 
@@ -408,7 +423,8 @@ export default function PosTerminal() {
               <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">
                 {cartItemsCount} item
               </p>
-              <p className="truncate font-display text-lg font-black text-white">{formatRupiah(cartTotal)}</p>
+              {/* NumberFlow = inline-block nowrap: tanpa elipsis, tapi s.d. Rp 9.999.999.999 (~180px) muat di layar 360px */}
+              <p className="truncate font-display text-lg font-black text-white"><Money value={cartTotal} /></p>
             </div>
             <button
               type="button"

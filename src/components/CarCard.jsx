@@ -1,12 +1,28 @@
 import React from 'react';
+import { motion, useIsPresent } from 'motion/react';
 import { Heart, MapPin, Gauge, Calendar, Settings2, Fuel, BadgeCheck } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import CarImage from './CarImage';
+import SoldStamp, { isFreshSale } from './SoldStamp';
 import { CAR_STATUS, calcInstallment, formatKm, formatRupiahShort, getCarName } from '../utils/carUtils';
 import { formatRupiah } from '../utils/formatters';
 
+// Foto kartu "terbang" ke/dari foto utama CarDetailModal (layoutId yang sama).
+const PHOTO_TRANSITION = { type: 'spring', bounce: 0.15, duration: 0.4 };
+// Sudut atas mengikuti rounded-2xl kartu. Radius wajib lewat style agar Motion
+// mengoreksinya terhadap skala selama foto berpindah bentuk.
+const PHOTO_RADIUS = {
+  borderTopLeftRadius: 16,
+  borderTopRightRadius: 16,
+  borderBottomLeftRadius: 0,
+  borderBottomRightRadius: 0,
+};
+
 export default function CarCard({ car }) {
   const { openCarDetail, favoriteCarIds, toggleFavoriteCar, storeInfo } = useApp();
+  // false saat kartu sedang keluar dari grid (AnimatePresence di CarMarketplace):
+  // kartu yang sedang menghilang tidak boleh lagi menerima klik atau fokus.
+  const isPresent = useIsPresent();
 
   const isFavorite = favoriteCarIds.includes(car.id);
   const isSold = car.status === 'sold';
@@ -30,7 +46,7 @@ export default function CarCard({ car }) {
   return (
     <div
       role="button"
-      tabIndex={0}
+      tabIndex={isPresent ? 0 : -1}
       onClick={open}
       onKeyDown={(e) => {
         // Abaikan kalau event ini menggelembung dari elemen lain di dalam kartu (mis.
@@ -42,15 +58,28 @@ export default function CarCard({ car }) {
         }
       }}
       aria-label={`Lihat detail ${getCarName(car, { withYear: true })}`}
-      className="group flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-white/10 bg-ink-800 transition-all hover:border-brand-600 hover:shadow-lg hover:shadow-brand-900/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+      className={`group flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-white/10 bg-ink-800 transition-all hover:border-brand-600 hover:shadow-lg hover:shadow-brand-900/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${isPresent ? '' : 'pointer-events-none'}`}
     >
       {/* Foto */}
       <div className="relative">
-        <CarImage
-          car={car}
-          className="aspect-[16/10] w-full"
-          imgClassName={`transition-transform duration-500 group-hover:scale-105 ${isSold ? 'grayscale' : ''}`}
-        />
+        <motion.div
+          layoutId={`car-photo-${car.id}`}
+          transition={PHOTO_TRANSITION}
+          className="relative overflow-hidden"
+          style={PHOTO_RADIUS}
+        >
+          <CarImage
+            car={car}
+            className="aspect-[16/10] w-full"
+            imgClassName={`transition-transform duration-500 group-hover:scale-105 ${isSold ? 'grayscale' : ''}`}
+          />
+          {/* Stempel ikut di dalam foto supaya ikut terbang bersama fotonya */}
+          {isSold && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <SoldStamp size="sm" animate={isFreshSale(car.soldAt)} />
+            </div>
+          )}
+        </motion.div>
 
         <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3">
           <div className="flex flex-wrap gap-1.5">
@@ -59,7 +88,8 @@ export default function CarCard({ car }) {
                 Pilihan Auto18
               </span>
             )}
-            {status && car.status !== 'available' && (
+            {/* Mobil terjual sudah ditandai stempel di foto; badge hanya untuk "Dipesan" */}
+            {status && car.status === 'booked' && (
               <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${status.className}`}>
                 {status.label}
               </span>

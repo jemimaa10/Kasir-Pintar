@@ -8,6 +8,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { formatRupiah, formatDate } from '../utils/formatters';
 import { PAYMENT_METHOD_LABEL, formatKm, getCarName } from '../utils/carUtils';
+import SoldStamp, { isFreshSale } from './SoldStamp';
 
 // Baris "label : nilai" di dalam kertas struk (tetap putih–hitam untuk printer thermal)
 function ReceiptRow({ label, value, strong = false, accent = false }) {
@@ -127,7 +128,9 @@ ${storeInfo.receiptFooter}
           <div className="flex items-center gap-2 min-w-0">
             <CheckCircle2 className="w-5 h-5 text-brand-500 shrink-0" aria-hidden="true" />
             <span className="font-display font-black uppercase tracking-wide text-white text-sm truncate">
-              {isCarSale ? 'Penjualan Mobil Tercatat!' : 'Transaksi Berhasil Disimpan!'}
+              {isVoided
+                ? 'Nota Transaksi Dibatalkan'
+                : isCarSale ? 'Penjualan Mobil Tercatat!' : 'Transaksi Berhasil Disimpan!'}
             </span>
           </div>
           <button
@@ -141,10 +144,11 @@ ${storeInfo.receiptFooter}
         </div>
 
         {/* Kertas struk (tetap putih untuk printer thermal) */}
-        <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-ink-900">
+        {/* overflow-x-hidden: stempel yang sedang "dihentakkan" (skala 2x) tidak memunculkan scrollbar horizontal */}
+        <div className="p-4 sm:p-6 overflow-x-hidden overflow-y-auto flex-1 bg-ink-900">
           <div
             id="printable-receipt"
-            className="bg-white p-5 rounded-xl border border-dashed border-slate-300 font-mono text-xs text-slate-800 space-y-2.5 mx-auto max-w-[320px]"
+            className="relative bg-white p-5 rounded-xl border border-dashed border-slate-300 font-mono text-xs text-slate-800 space-y-2.5 mx-auto max-w-[320px]"
           >
             {/* Kop struk */}
             <div className="text-center space-y-0.5">
@@ -157,12 +161,6 @@ ${storeInfo.receiptFooter}
             </div>
 
             <div className="border-b border-dashed border-slate-300 my-2" />
-
-            {isVoided && (
-              <p className="rounded-lg border-2 border-red-600 bg-red-50 px-3 py-1 text-center text-[11px] font-black uppercase tracking-[0.2em] text-red-700">
-                Dibatalkan
-              </p>
-            )}
 
             {isCarSale && (
               <p className="text-center text-[11px] font-bold uppercase tracking-wider text-slate-900">
@@ -199,8 +197,8 @@ ${storeInfo.receiptFooter}
 
                 <div className="border-b border-dashed border-slate-300 my-2" />
 
-                {/* Rincian harga */}
-                <div className="space-y-1 text-[11px]">
+                {/* Rincian harga (relative: jangkar stempel TERJUAL, tanpa menggeser tata letak) */}
+                <div className="relative space-y-1 text-[11px]">
                   <ReceiptRow label="Harga" value={formatRupiah(currentReceipt.subtotal)} />
                   {currentReceipt.discount > 0 && (
                     <ReceiptRow label="Diskon" value={`-${formatRupiah(currentReceipt.discount)}`} />
@@ -218,6 +216,19 @@ ${storeInfo.receiptFooter}
                   {/* Sisa bayar hanya relevan bila berbeda dari total (mis. ada tukar tambah) */}
                   {amountDue !== currentReceipt.total && (
                     <ReceiptRow label="Sisa Bayar" value={formatRupiah(amountDue)} strong accent />
+                  )}
+
+                  {/* Stempel TERJUAL menimpa blok harga. Harus anak TERAKHIR (space-y memberi
+                      margin ke saudara berikutnya); !mt-0 membatalkan margin space-y miliknya.
+                      Dihentakkan hanya sesaat setelah penjualan; statis saat dibuka ulang. */}
+                  {!isVoided && (
+                    <SoldStamp
+                      key={currentReceipt.id || currentReceipt.code}
+                      label="TERJUAL"
+                      size="lg"
+                      animate={isFreshSale(currentReceipt.date)}
+                      className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 !mt-0 mix-blend-multiply"
+                    />
                   )}
                 </div>
 
@@ -313,6 +324,17 @@ ${storeInfo.receiptFooter}
               </div>
               <p className="font-mono text-[9px] text-slate-400">{currentReceipt.code}</p>
             </div>
+
+            {/* Nota dibatalkan: stempel statis di tengah kertas (mobil maupun ritel).
+                Anak terakhir agar space-y tidak menggeser isi struk; !mt-0 membatalkan margin miliknya. */}
+            {isVoided && (
+              <SoldStamp
+                label="DIBATALKAN"
+                size="lg"
+                animate={false}
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 !mt-0 mix-blend-multiply"
+              />
+            )}
 
           </div>
         </div>

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion, useIsPresent } from 'motion/react';
 import {
   X, Heart, Calendar, Gauge, Settings2, Fuel, Cog, Users, Palette, MapPin, FileText, Wrench,
   BadgeCheck, MessageCircle, Phone, CalendarCheck, CheckCircle2, ShieldCheck, Receipt
@@ -6,6 +7,7 @@ import {
 import { useApp } from '../context/AppContext';
 import CarImage from './CarImage';
 import CreditSimulator from './CreditSimulator';
+import SoldStamp, { isFreshSale } from './SoldStamp';
 import { AUTO18_BENEFITS, INSPECTION_CATEGORIES } from '../data/initialData';
 import { CAR_IMAGE_CREDITS } from '../data/carImages';
 import { CAR_STATUS, calcInstallment, formatKm, formatRupiahShort, getCarName, isValidPhone } from '../utils/carUtils';
@@ -42,18 +44,60 @@ const emptyBooking = {
   notes: '',
 };
 
+// Foto utama berbagi layoutId dengan foto CarCard di grid, jadi foto "terbang" dari
+// kartu ke modal dan kembali lagi saat ditutup.
+const PHOTO_TRANSITION = { type: 'spring', bounce: 0.15, duration: 0.4 };
+const BACKDROP_TRANSITION = { duration: 0.2, ease: 'easeOut' };
+
+// Panel dibagi tiga lapis supaya tidak ada "double exposure" (teks panel tembus
+// pandang di atas grid) saat membuka/menutup:
+// - panel: hanya bergeser sedikit (tanpa opacity, agar foto yang terbang tetap penuh)
+// - permukaan gelap: memudar sendiri
+// - isi (teks, kartu, badge): baru muncul setelah permukaan pekat, dan hilang duluan
+const PANEL_VARIANTS = {
+  hidden: { y: 12 },
+  shown: { y: 0, transition: { type: 'spring', bounce: 0.15, duration: 0.35 } },
+  gone: { y: 8, transition: { duration: 0.18, ease: 'easeIn' } },
+};
+const SURFACE_VARIANTS = {
+  hidden: { opacity: 0 },
+  shown: { opacity: 1, transition: { duration: 0.12, ease: 'easeOut' } },
+  // baru memudar setelah isi (0,08 dtk) benar-benar hilang
+  gone: { opacity: 0, transition: { duration: 0.14, delay: 0.09, ease: 'easeIn' } },
+};
+const CONTENT_VARIANTS = {
+  hidden: { opacity: 0 },
+  shown: { opacity: 1, transition: { delay: 0.12, duration: 0.2, ease: 'easeOut' } },
+  gone: { opacity: 0, transition: { duration: 0.08, ease: 'easeIn' } },
+};
+
 export default function CarDetailModal() {
+  const { selectedCar } = useApp();
+
+  // Dialog tetap terpasang selama animasi keluar dan terus menampilkan mobil yang
+  // terakhir dibuka (dari prop-nya sendiri), meski selectedCar sudah null.
+  return (
+    <AnimatePresence>
+      {selectedCar && <CarDetailDialog key={selectedCar.id} car={selectedCar} />}
+    </AnimatePresence>
+  );
+}
+
+function CarDetailDialog({ car }) {
   const {
-    selectedCar, closeCarDetail, openCarCheckout, checkoutCar, favoriteCarIds, toggleFavoriteCar,
+    closeCarDetail, openCarCheckout, checkoutCar, favoriteCarIds, toggleFavoriteCar,
     addTestDrive, storeInfo, transactions, setCurrentReceipt, setIsReceiptModalOpen,
   } = useApp();
+
+  // false selama animasi keluar: modal sudah ditutup, jadi jangan tangkap klik lagi
+  const isPresent = useIsPresent();
 
   const [showBooking, setShowBooking] = useState(false);
   const [booking, setBooking] = useState(emptyBooking);
   const [errors, setErrors] = useState({});
   const [successCode, setSuccessCode] = useState('');
 
-  const carId = selectedCar?.id;
+  const carId = car.id;
 
   // Reset isi form saat mobil yang dibuka berganti / modal ditutup
   useEffect(() => {
@@ -71,6 +115,8 @@ export default function CarDetailModal() {
   closeRef.current = closeCarDetail;
   const checkoutOpenRef = useRef(false);
   checkoutOpenRef.current = !!checkoutCar;
+  // Apakah dialog ini sedang memegang satu kunci scroll (lihat pengaman di bawah)
+  const holdsScrollLockRef = useRef(false);
 
   useEffect(() => {
     if (!carId) return undefined;
@@ -79,22 +125,45 @@ export default function CarDetailModal() {
     };
     window.addEventListener('keydown', onKeyDown);
     lockScroll();
+    holdsScrollLockRef.current = true;
     return () => {
       window.removeEventListener('keydown', onKeyDown);
-      unlockScroll();
+      if (holdsScrollLockRef.current) {
+        holdsScrollLockRef.current = false;
+        unlockScroll();
+      }
     };
   }, [carId]);
 
+  // Setelah ditutup, dialog baru di-unmount (dan kunci scroll dilepas) begitu animasi
+  // keluarnya selesai — termasuk foto yang kembali ke kartunya — supaya halaman tidak
+  // bergeser di tengah animasi. Pengaman: kalau animasi keluar karena suatu hal tidak
+  // pernah selesai, kunci tetap dilepas setelah jeda singkat agar halaman tidak macet.
+  useEffect(() => {
+    if (isPresent) {
+      // Dibuka lagi setelah pengaman sempat melepas kunci → pasang kembali
+      if (!holdsScrollLockRef.current) {
+        lockScroll();
+        holdsScrollLockRef.current = true;
+      }
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      if (holdsScrollLockRef.current) {
+        holdsScrollLockRef.current = false;
+        unlockScroll();
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [isPresent]);
+
   const installment = useMemo(() => calcInstallment({
-    price: selectedCar?.price || 0,
+    price: car.price || 0,
     dpPercent: storeInfo.minDpPercent,
     tenorMonths: 60,
     annualRate: storeInfo.creditRate,
-  }), [selectedCar?.price, storeInfo.minDpPercent, storeInfo.creditRate]);
+  }), [car.price, storeInfo.minDpPercent, storeInfo.creditRate]);
 
-  if (!selectedCar) return null;
-
-  const car = selectedCar;
   const isSold = car.status === 'sold';
   const isFavorite = favoriteCarIds.includes(car.id);
   const status = CAR_STATUS[car.status];
@@ -150,19 +219,56 @@ export default function CarDetailModal() {
     setBooking({ ...emptyBooking, date: todayLocal() });
   };
 
+  // Catatan: wadah scroll ini sengaja TIDAK diberi layoutScroll. Motion memperlakukan
+  // wadah fixed ber-layoutScroll sebagai akar scroll tersendiri (koordinat viewport),
+  // sedangkan foto kartu diukur dalam koordinat halaman — foto bersama jadi meleset
+  // sejauh scroll halaman.
   return (
     <div
-      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-sm"
+      // inert saat animasi keluar: tombol yang sedang memudar tidak boleh lagi bisa
+      // difokus/diaktifkan lewat keyboard (React 18: '' memasang atribut, undefined melepas)
+      inert={isPresent ? undefined : ''}
+      className={`fixed inset-0 z-40 flex items-start justify-center overflow-y-auto p-4 ${isPresent ? '' : 'pointer-events-none'}`}
       onMouseDown={(e) => { if (e.target === e.currentTarget) closeCarDetail(); }}
     >
-      <div
+      {/* Latar gelap terpisah supaya bisa memudar sendiri tanpa ikut memudarkan panel
+          (dan foto yang sedang terbang di dalamnya). Klik di area kosong tetap jatuh ke
+          wadah scroll di atas karena latar ini pointer-events-none. */}
+      <motion.div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 bg-black/80 backdrop-blur-sm"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={BACKDROP_TRANSITION}
+      />
+      <motion.div
         role="dialog"
         aria-modal="true"
         aria-label={getCarName(car, { withYear: true })}
-        className="my-4 w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 bg-ink-800"
+        // relative: panel harus tergambar di atas latar (fixed) di sebelumnya.
+        // Tanpa overflow-hidden: foto yang terbang tidak boleh terpotong tepi panel.
+        className="relative my-4 w-full max-w-5xl rounded-3xl"
+        variants={PANEL_VARIANTS}
+        initial="hidden"
+        animate="shown"
+        exit="gone"
       >
+        {/* Permukaan panel (latar + garis tepi) */}
+        <motion.div
+          aria-hidden="true"
+          variants={SURFACE_VARIANTS}
+          className="pointer-events-none absolute inset-0 rounded-3xl border border-white/10 bg-ink-800"
+        />
+
         {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-white/10 bg-ink-800/95 px-5 py-3.5 backdrop-blur">
+        <motion.div
+          variants={CONTENT_VARIANTS}
+          // Sengaja tidak sticky: dulu panel ber-overflow-hidden sehingga sticky tidak pernah
+          // aktif. Tanpa overflow-hidden, sticky akan menempel 16px di bawah tepi (padding
+          // overlay) dan isi yang di-scroll terlihat di atasnya.
+          className="relative z-10 flex items-center justify-between gap-3 rounded-t-3xl border-b border-white/10 bg-ink-800/95 px-5 py-3.5 backdrop-blur"
+        >
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-wider text-brand-500">{car.code}</p>
             <h2 className="truncate font-display text-lg font-black uppercase tracking-wide text-white">
@@ -172,27 +278,45 @@ export default function CarDetailModal() {
           <button type="button" onClick={closeCarDetail} aria-label="Tutup detail mobil" className="a18-btn-ghost px-2">
             <X className="h-5 w-5" />
           </button>
-        </div>
+        </motion.div>
 
-        <div className="grid gap-6 p-5 lg:grid-cols-[1.5fr_1fr]">
+        {/* relative: harus tergambar di atas permukaan panel yang absolute */}
+        <div className="relative grid gap-6 p-5 lg:grid-cols-[1.5fr_1fr]">
           {/* Kiri: media & spesifikasi */}
           <div className="space-y-6">
-            <div className="relative">
-              <CarImage car={car} className="aspect-[16/10] w-full rounded-2xl" />
-              <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
+            {/* z-[5]: foto yang sedang terbang harus tergambar di atas kolom kanan (yang
+                datang belakangan di DOM), tapi tetap di bawah header (z-10) */}
+            <div className="relative z-[5]">
+              {/* Radius lewat style (bukan hanya kelas) agar Motion mengoreksinya terhadap skala */}
+              <motion.div
+                layoutId={`car-photo-${car.id}`}
+                transition={PHOTO_TRANSITION}
+                className="relative overflow-hidden"
+                style={{ borderRadius: 16 }}
+              >
+                <CarImage car={car} className="aspect-[16/10] w-full rounded-2xl" />
+                {isSold && (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <SoldStamp size="md" animate={isFreshSale(car.soldAt)} />
+                  </div>
+                )}
+              </motion.div>
+              <motion.div variants={CONTENT_VARIANTS} className="absolute left-3 top-3 flex flex-wrap gap-1.5">
                 {car.isFeatured && !isSold && (
                   <span className="rounded-full bg-brand-600 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white">
                     Pilihan Auto18
                   </span>
                 )}
-                {status && car.status !== 'available' && (
+                {/* Mobil terjual sudah ditandai stempel di foto; badge hanya untuk "Dipesan" */}
+                {status && car.status === 'booked' && (
                   <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${status.className}`}>
                     {status.label}
                   </span>
                 )}
-              </div>
+              </motion.div>
             </div>
 
+            <motion.div variants={CONTENT_VARIANTS} className="space-y-6">
             {/* Kredit foto (lisensi Wikimedia Commons) */}
             {photoCredit && (
               <p className="-mt-4 text-[10px] text-neutral-600">
@@ -303,10 +427,13 @@ export default function CarDetailModal() {
               </ul>
               <p className="mt-2 text-xs text-neutral-500">dan {AUTO18_BENEFITS.length - 4} layanan lainnya.</p>
             </div>
+            </motion.div>
           </div>
 
           {/* Kanan: harga & aksi */}
-          <div className="space-y-4 lg:sticky lg:top-20 lg:self-start">
+          {/* Tidak sticky (sama seperti perilaku lama): kolom ini lebih tinggi dari layar,
+              jadi kalau menempel, tombol "Proses Penjualan" di bawahnya tak terjangkau */}
+          <motion.div variants={CONTENT_VARIANTS} className="space-y-4 lg:self-start">
             <div className="a18-card p-5">
               <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Harga Cash</p>
               <p className="font-display text-3xl font-black text-white">{formatRupiah(car.price)}</p>
@@ -512,9 +639,9 @@ export default function CarDetailModal() {
                 </button>
               )}
             </div>
-          </div>
+          </motion.div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
