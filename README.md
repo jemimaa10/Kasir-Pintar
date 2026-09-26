@@ -78,7 +78,8 @@ File hasil `build:standalone` bisa dibuka langsung dengan klik dua kali, tanpa s
 - **Build Tool**: Vite 6
 - **Styling**: Tailwind CSS 3 (tema kustom `brand` merah & `ink` hitam)
 - **Icons**: Lucide React
-- **Animasi**: Motion (foto mobil "terbang" ke detail, kartu bergeser saat filter, stempel TERJUAL) — otomatis dimatikan bila "kurangi gerakan" aktif di sistem
+- **Animasi**: Motion (foto mobil "terbang" ke detail, kartu bergeser saat filter, nota "keluar" dari printer + stempel TERJUAL, laporan inspeksi interaktif, langkah Jual Mobil bergeser, penanda tab bergeser, keranjang kasir hidup) — otomatis dimatikan bila "kurangi gerakan" aktif di sistem
+- **Notifikasi**: toast buatan sendiri (`src/utils/toast.js` + `Toaster`) sebagai pengganti kotak `alert()` browser
 - **Angka bergulir**: NumberFlow (harga, cicilan, dan total kasir)
 - **Typography**: Montserrat (judul), Plus Jakarta Sans (teks), JetBrains Mono (angka)
 

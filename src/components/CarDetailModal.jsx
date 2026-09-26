@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion, useIsPresent } from 'motion/react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion, useAnimationControls, useIsPresent } from 'motion/react';
 import {
   X, Heart, Calendar, Gauge, Settings2, Fuel, Cog, Users, Palette, MapPin, FileText, Wrench,
   BadgeCheck, MessageCircle, Phone, CalendarCheck, CheckCircle2, ShieldCheck, Receipt
@@ -7,6 +7,7 @@ import {
 import { useApp } from '../context/AppContext';
 import CarImage from './CarImage';
 import CreditSimulator from './CreditSimulator';
+import InspectionDiagram, { getLowestCategoryKey } from './InspectionDiagram';
 import SoldStamp, { isFreshSale } from './SoldStamp';
 import { AUTO18_BENEFITS, INSPECTION_CATEGORIES } from '../data/initialData';
 import { CAR_IMAGE_CREDITS } from '../data/carImages';
@@ -70,6 +71,27 @@ const CONTENT_VARIANTS = {
   shown: { opacity: 1, transition: { delay: 0.12, duration: 0.2, ease: 'easeOut' } },
   gone: { opacity: 0, transition: { duration: 0.08, ease: 'easeIn' } },
 };
+
+// Kontrak "pop" favorit — harus identik dengan hati di CarCard: saat jadi favorit ikon
+// membesar 1 → 1,3 → 1 sambil terisi merah; saat dilepas mengecil sedikit 1 → 0,85 → 1.
+// ±300 ms. Pegas Motion hanya mendukung 2 keyframe, jadi dipakai keyframe dengan ease-out
+// (nilai persis sama dengan CarCard). Keyframe pertama null = mulai dari skala saat ini,
+// supaya klik beruntun tidak meloncat.
+const HEART_TRANSITION = { duration: 0.3, times: [0, 0.4, 1], ease: 'easeOut' };
+const HEART_POP = { scale: [null, 1.3, 1], transition: HEART_TRANSITION };
+const HEART_DIP = { scale: [null, 0.85, 1], transition: HEART_TRANSITION };
+
+// Pil pilihan kategori inspeksi (sama seperti pil tenor di CreditSimulator)
+const PILL_SPRING = { type: 'spring', bounce: 0.15, duration: 0.35 };
+
+// Batang skor inspeksi mengisi dari 0 sekali saat modal dibuka, setelah isi modal mulai
+// tampak (CONTENT_VARIANTS berjeda 0,12 dtk), berurutan tipis 40 ms. Memakai scaleX
+// (transformasi), jadi pengguna reduced motion langsung melihat keadaan akhir yang sama.
+const BAR_EMPTY = { scaleX: 0 };
+const BAR_FULL = { scaleX: 1 };
+const BAR_FILL_DELAY = 0.2;
+const BAR_FILL_STAGGER = 0.04;
+const BAR_FILL_TRANSITION = { duration: 0.45, ease: [0.22, 1, 0.36, 1] };
 
 export default function CarDetailModal() {
   const { selectedCar } = useApp();
@@ -172,6 +194,16 @@ function CarDetailDialog({ car }) {
   const photoCredit = !car.imageUrl && car.imageKey
     ? CAR_IMAGE_CREDITS.find(credit => credit.key === car.imageKey)
     : null;
+
+  // Hati "pop"/"dip" hanya saat status favorit BERUBAH — tidak saat modal dibuka
+  // (nilai awal disimpan di ref, jadi render pertama & StrictMode tidak memicunya).
+  const heartControls = useAnimationControls();
+  const prevFavoriteRef = useRef(isFavorite);
+  useEffect(() => {
+    if (prevFavoriteRef.current === isFavorite) return;
+    prevFavoriteRef.current = isFavorite;
+    heartControls.start(isFavorite ? HEART_POP : HEART_DIP);
+  }, [isFavorite, heartControls]);
 
   const specs = [
     { icon: Calendar, label: 'Tahun', value: car.year },
@@ -376,40 +408,7 @@ function CarDetailDialog({ car }) {
             )}
 
             {/* Laporan inspeksi */}
-            <div className="a18-card p-5">
-              <div className="flex items-center gap-4">
-                <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full border-4 border-brand-600 bg-ink-900">
-                  <span className="font-display text-xl font-black leading-none text-white">{car.inspectionScore}</span>
-                  <span className="text-[9px] uppercase text-neutral-500">dari 100</span>
-                </div>
-                <div>
-                  <h3 className="flex items-center gap-1.5 font-display text-sm font-black uppercase tracking-wide text-white">
-                    <BadgeCheck className="h-4 w-4 text-brand-500" aria-hidden="true" />
-                    Laporan Inspeksi Auto18
-                  </h3>
-                  <p className="mt-1 text-xs text-neutral-400">
-                    Mesin, transmisi, kaki-kaki, kelistrikan, interior, eksterior, dan dokumen diperiksa sebelum dijual.
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-4 space-y-2.5">
-                {INSPECTION_CATEGORIES.map(category => {
-                  const score = car.inspection?.[category.key] ?? 0;
-                  return (
-                    <div key={category.key}>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-neutral-300">{category.label}</span>
-                        <span className="font-bold text-white">{score}</span>
-                      </div>
-                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
-                        <div className={`h-full rounded-full ${scoreColor(score)}`} style={{ width: `${score}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <InspectionReport car={car} />
 
             {/* Benefit */}
             <div className="rounded-2xl border border-brand-600/40 bg-brand-950/30 p-5">
@@ -495,7 +494,9 @@ function CarDetailDialog({ car }) {
                 aria-pressed={isFavorite}
                 className="a18-btn-ghost mt-2 w-full justify-center"
               >
-                <Heart className={`h-4 w-4 ${isFavorite ? 'fill-brand-500 text-brand-500' : ''}`} />
+                <motion.span aria-hidden="true" animate={heartControls} className="inline-flex">
+                  <Heart className={`h-4 w-4 ${isFavorite ? 'fill-brand-500 text-brand-500' : ''}`} />
+                </motion.span>
                 {isFavorite ? 'Tersimpan di Favorit' : 'Simpan ke Favorit'}
               </button>
             </div>
@@ -642,6 +643,104 @@ function CarDetailDialog({ car }) {
           </motion.div>
         </div>
       </motion.div>
+    </div>
+  );
+}
+
+// Kartu "Laporan Inspeksi Auto18": diagram mobil tampak atas + batang skor per kategori.
+// Dipisah jadi komponen sendiri supaya hover/pilih kategori hanya me-render kartu ini,
+// bukan seluruh dialog.
+function InspectionReport({ car }) {
+  const uid = useId();
+  const detailId = `${uid}-inspection-detail`;
+
+  const scores = useMemo(() => Object.fromEntries(
+    INSPECTION_CATEGORIES.map(category => [category.key, car.inspection?.[category.key] ?? 0])
+  ), [car.inspection]);
+
+  // Bawaan: kategori dengan skor terendah — bagian yang paling perlu dilihat pembeli.
+  // Dialog di-key per mobil, jadi pilihan ini otomatis diulang untuk mobil lain.
+  const [selectedKey, setSelectedKey] = useState(() => getLowestCategoryKey(scores));
+
+  return (
+    <div className="a18-card p-5">
+      <div className="flex items-center gap-4">
+        <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full border-4 border-brand-600 bg-ink-900">
+          <span className="font-display text-xl font-black leading-none text-white">{car.inspectionScore}</span>
+          <span className="text-[9px] uppercase text-neutral-500">dari 100</span>
+        </div>
+        <div>
+          <h3 className="flex items-center gap-1.5 font-display text-sm font-black uppercase tracking-wide text-white">
+            <BadgeCheck className="h-4 w-4 text-brand-500" aria-hidden="true" />
+            Laporan Inspeksi Auto18
+          </h3>
+          <p className="mt-1 text-xs text-neutral-400">
+            Mesin, transmisi, kaki-kaki, kelistrikan, interior, eksterior, dan dokumen diperiksa sebelum dijual.
+          </p>
+        </div>
+      </div>
+
+      {/* Diagram di atas batang skor (mobile), di sampingnya mulai md */}
+      <div className="mt-4 grid gap-5 md:grid-cols-[200px_minmax(0,1fr)] md:items-center">
+        <InspectionDiagram
+          scores={scores}
+          selectedKey={selectedKey}
+          onSelect={setSelectedKey}
+          detailId={detailId}
+          className="mx-auto w-full max-w-[200px] md:max-w-none"
+        />
+
+        {/* isolate: z-index pil & teks tidak bocor ke luar kartu */}
+        <div role="group" aria-label="Skor per kategori inspeksi" className="isolate -mx-2.5 space-y-0.5">
+          {INSPECTION_CATEGORIES.map((category, index) => {
+            const score = scores[category.key];
+            const isSelected = selectedKey === category.key;
+            const select = () => setSelectedKey(category.key);
+            return (
+              <button
+                key={category.key}
+                type="button"
+                aria-pressed={isSelected}
+                aria-describedby={isSelected ? detailId : undefined}
+                onClick={select}
+                onFocus={select}
+                // Hover memilih untuk mouse/pena; sentuhan lewat tap saja supaya menggeser
+                // modal dengan jari tidak ikut mengganti pilihan.
+                onPointerEnter={(e) => { if (e.pointerType !== 'touch') select(); }}
+                className="relative block w-full rounded-lg px-2.5 py-1.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+              >
+                {isSelected && (
+                  // layoutId unik per instance (useId); layoutDependency: pil hanya bergeser
+                  // saat pilihan berganti, bukan saat layout modal berubah.
+                  <motion.span
+                    layoutId={`${uid}-inspection-pill`}
+                    layoutDependency={selectedKey}
+                    transition={PILL_SPRING}
+                    aria-hidden="true"
+                    className="absolute inset-0 z-[1] border border-brand-600/80 bg-brand-600/10"
+                    style={{ borderRadius: 8 }}
+                  />
+                )}
+                <span className="relative z-10 block">
+                  <span className="flex items-center justify-between text-xs">
+                    <span className="text-neutral-300">{category.label}</span>
+                    <span className="font-bold text-white">{score}</span>
+                  </span>
+                  <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-white/10">
+                    <motion.span
+                      className={`block h-full origin-left rounded-full ${scoreColor(score)}`}
+                      style={{ width: `${score}%` }}
+                      initial={BAR_EMPTY}
+                      animate={BAR_FULL}
+                      transition={{ ...BAR_FILL_TRANSITION, delay: BAR_FILL_DELAY + index * BAR_FILL_STAGGER }}
+                    />
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { INITIAL_STORE_INFO } from '../data/initialData';
 import { calcInstallment } from '../utils/carUtils';
 import { formatRupiah } from '../utils/formatters';
+import { toast } from '../utils/toast';
 
 // Contoh harga untuk pratinjau simulasi kredit
 const PREVIEW_PRICE = 200_000_000;
@@ -72,7 +73,7 @@ function SettingsPanel() {
       minDpPercent: toNumberInRange(form.minDpPercent, storeInfo.minDpPercent, 0, 90),
     });
     close();
-    alert('Pengaturan showroom berhasil diperbarui!');
+    toast.success('Pengaturan showroom berhasil diperbarui!');
   };
 
   // Pratinjau cicilan dengan bunga & DP yang sedang diisi

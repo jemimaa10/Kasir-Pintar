@@ -188,6 +188,19 @@
   #printable-receipt, #printable-receipt * {
     visibility: visible;
   }
+  /* Animasi "keluar dari printer" tidak boleh menggeser/memotong struk yang dicetak,
+     walau tombol cetak ditekan saat animasi masih berjalan */
+  .a18-print-feed {
+    transform: none !important;
+    overflow: visible !important;
+    margin: 0 !important;
+  }
+  /* Stempel selalu tercetak dalam pose akhirnya, walau dicetak saat masih menunggu /
+     sedang "dihentakkan" (Motion menulis opacity & transform inline) */
+  #printable-receipt .a18-stamp-press {
+    opacity: 1 !important;
+    transform: rotate(-10deg) !important; /* = TILT di SoldStamp.jsx */
+  }
   #printable-receipt {
     position: absolute;
     left: 0;

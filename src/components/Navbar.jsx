@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { motion, useAnimate } from 'motion/react';
 import {
   Phone,
   Heart,
@@ -31,6 +32,28 @@ const toTelHref = (number) => `tel:${String(number || '').replace(/[^\d+]/g, '')
 // Sembunyikan scrollbar horizontal pada baris yang bisa digeser
 const HIDE_SCROLLBAR = '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
 
+const PUBLIC_TAB_IDS = new Set(PUBLIC_TABS.map(tab => tab.id));
+const ADMIN_TAB_IDS = new Set(ADMIN_TABS.map(tab => tab.id));
+
+// Indikator tab aktif bergeser ke tab baru (layoutId yang sama), pegas cepat & nyaris tanpa pantulan.
+// Catatan layout="x": header ini sticky dan setActiveTab menggulir halaman ke atas, jadi
+// posisi header terhadap halaman ikut berubah sejauh jarak gulir. Dengan hanya sumbu
+// horizontal yang dianimasikan, indikator tidak "terbang" dari bawah saat tab diganti
+// dari posisi halaman yang sudah tergulir.
+const TAB_SPRING = { type: 'spring', bounce: 0.15, duration: 0.35 };
+// Garis bawah menu publik "tumbuh" (seperti sebelumnya) hanya saat datang dari panel showroom
+const UNDERLINE_ANIMATE = { scaleX: 1 };
+const UNDERLINE_TRANSITION = { layout: TAB_SPRING, scaleX: { duration: 0.2, ease: 'easeOut' } };
+// Pil panel showroom muncul pelan (pengganti transition-colors lama) saat datang dari menu publik
+const ADMIN_PILL_ANIMATE = { opacity: 1 };
+const ADMIN_PILL_TRANSITION = { layout: TAB_SPRING, opacity: { duration: 0.15, ease: 'easeOut' } };
+// Radius lewat style (bukan hanya kelas) agar Motion mengoreksinya terhadap skala saat pil melebar/menyempit
+const ADMIN_PILL_STYLE = { borderRadius: 9999 };
+
+// Badge jumlah favorit "terbentur" singkat saat angkanya berubah
+const BADGE_BUMP = [null, 1.25, 1];
+const BADGE_BUMP_TRANSITION = { duration: 0.25, times: [0, 0.4, 1], ease: 'easeOut' };
+
 export default function Navbar() {
   const {
     activeTab,
@@ -52,6 +75,28 @@ export default function Navbar() {
   const carInboxCount = newSellRequestCount + pendingTestDriveCount;
   // Hanya hitung favorit yang mobilnya masih ada
   const favoriteCount = favoriteCarIds.filter(id => cars.some(c => c.id === id)).length;
+
+  // Tab sebelumnya, disesuaikan langsung saat render (bukan lewat efek) supaya indikator
+  // yang baru dipasang sudah tahu: bergeser dari tab di baris yang sama, atau baru masuk
+  // dari baris lain. Awalnya previous = tab saat ini, jadi tidak ada animasi saat halaman dibuka.
+  const [tabHistory, setTabHistory] = useState({ previous: activeTab, current: activeTab });
+  if (tabHistory.current !== activeTab) {
+    setTabHistory({ previous: tabHistory.current, current: activeTab });
+  }
+  const enteringPublicRow = !PUBLIC_TAB_IDS.has(tabHistory.previous);
+  const enteringAdminRow = !ADMIN_TAB_IDS.has(tabHistory.previous);
+
+  // Badge favorit: bump hanya saat jumlahnya berubah, tidak pada render pertama
+  const [badgeScope, animateBadge] = useAnimate();
+  const prevFavoriteCount = useRef(favoriteCount);
+  useEffect(() => {
+    if (prevFavoriteCount.current === favoriteCount) return;
+    prevFavoriteCount.current = favoriteCount;
+    // Jumlah turun ke 0 → badge sudah dilepas, tidak ada yang dianimasikan.
+    // Animasi baru pada nilai yang sama otomatis menghentikan yang lama, dan useAnimate
+    // menghentikan semuanya saat Navbar dilepas, jadi tidak perlu cleanup di sini.
+    if (badgeScope.current) animateBadge(badgeScope.current, { scale: BADGE_BUMP }, BADGE_BUMP_TRANSITION);
+  }, [favoriteCount, animateBadge, badgeScope]);
 
   // Badge per tab admin: nilai + warna
   const adminBadges = {
@@ -115,12 +160,20 @@ export default function Navbar() {
                       {restWords.length > 0 && (
                         <span className="hidden sm:inline">&nbsp;{restWords.join(' ')}</span>
                       )}
-                      <span
-                        aria-hidden="true"
-                        className={`absolute inset-x-1.5 bottom-0 h-1 rounded-t-sm bg-brand-600 transition-transform duration-200 origin-center sm:inset-x-3 ${
-                          isActive ? 'scale-x-100' : 'scale-x-0'
-                        }`}
-                      />
+                      {isActive && (
+                        // layoutDependency: hanya bergeser saat tab berganti, bukan saat Navbar
+                        // dirender ulang karena hal lain (badge, keranjang) atau halaman digulir.
+                        <motion.span
+                          layoutId="navbar-public-tab-underline"
+                          layout="x"
+                          layoutDependency={activeTab}
+                          initial={enteringPublicRow ? { scaleX: 0 } : false}
+                          animate={UNDERLINE_ANIMATE}
+                          transition={UNDERLINE_TRANSITION}
+                          aria-hidden="true"
+                          className="absolute inset-x-1.5 bottom-0 h-1 rounded-t-sm bg-brand-600 sm:inset-x-3"
+                        />
+                      )}
                     </button>
                   );
                 })}
@@ -153,7 +206,7 @@ export default function Navbar() {
               >
                 <Heart className={`h-5 w-5 ${favoriteCount > 0 ? 'fill-brand-600 text-brand-500' : ''}`} />
                 {favoriteCount > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-brand-600 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-black">
+                  <span ref={badgeScope} className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-brand-600 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-black">
                     {favoriteCount > 99 ? '99+' : favoriteCount}
                   </span>
                 )}
@@ -186,9 +239,10 @@ export default function Navbar() {
       {/* Baris 2: panel showroom (admin) */}
       <div className="border-b border-white/10 bg-ink-800">
         <div className="max-w-7xl mx-auto">
+          {/* isolate: z-index pil & teks tidak bocor keluar baris ini */}
           <nav
             aria-label="Panel Showroom"
-            className={`flex items-center gap-2 overflow-x-auto px-4 py-2 sm:px-6 lg:px-8 ${HIDE_SCROLLBAR}`}
+            className={`isolate flex items-center gap-2 overflow-x-auto px-4 py-2 sm:px-6 lg:px-8 ${HIDE_SCROLLBAR}`}
           >
             <span className="flex shrink-0 items-center gap-2 pr-1 font-display text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500 sm:pr-2">
               <span className="h-3 w-1.5 -skew-x-12 bg-brand-600" aria-hidden="true" />
@@ -205,18 +259,32 @@ export default function Navbar() {
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                  className={`relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
                     isActive
-                      ? 'border-brand-600 bg-brand-600 text-white shadow-md shadow-brand-600/30'
+                      ? 'border-transparent text-white'
                       : 'border-white/10 text-neutral-300 hover:border-white/30 hover:bg-white/5 hover:text-white'
                   }`}
                 >
-                  <Icon className={`h-3.5 w-3.5 ${isActive ? 'text-white' : 'text-neutral-400'}`} />
-                  <span>{tab.label}</span>
+                  {isActive && (
+                    // Latar merah tab aktif bergeser ke tab yang baru dipilih
+                    <motion.span
+                      layoutId="navbar-admin-tab-pill"
+                      layout="x"
+                      layoutDependency={activeTab}
+                      initial={enteringAdminRow ? { opacity: 0 } : false}
+                      animate={ADMIN_PILL_ANIMATE}
+                      transition={ADMIN_PILL_TRANSITION}
+                      aria-hidden="true"
+                      className="absolute -inset-px z-[1] bg-brand-600 shadow-md shadow-brand-600/30"
+                      style={ADMIN_PILL_STYLE}
+                    />
+                  )}
+                  <Icon className={`relative z-10 h-3.5 w-3.5 ${isActive ? 'text-white' : 'text-neutral-400'}`} />
+                  <span className="relative z-10">{tab.label}</span>
                   {badge && (
                     <span
                       title={badge.title}
-                      className={`flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-black leading-none ${
+                      className={`relative z-10 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-black leading-none ${
                         isActive ? 'bg-white text-brand-700' : badge.className
                       }`}
                     >

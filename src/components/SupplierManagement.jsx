@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatRupiah } from '../utils/formatters';
+import { toast } from '../utils/toast';
 
 const num = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
 
@@ -78,7 +79,7 @@ export default function SupplierManagement() {
       }
     ], restockForm.invoiceNo);
 
-    alert(`Berhasil menambah ${restockForm.qty} stok untuk "${product?.name}"!`);
+    toast.success(`Berhasil menambah ${restockForm.qty} stok untuk "${product?.name}"!`);
     // Kosongkan harga modal & no. faktur per-invoice supaya tidak tertulis ulang ke
     // produk lain saat "Catat Stok Masuk" dibuka lagi.
     setRestockForm(prev => ({ ...prev, qty: 10, buyPrice: '', invoiceNo: '' }));

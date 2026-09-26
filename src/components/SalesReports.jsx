@@ -14,6 +14,7 @@ import { useApp } from '../context/AppContext';
 import { formatRupiah, formatDate } from '../utils/formatters';
 import { formatRupiahShort, getCarName, PAYMENT_METHOD_LABEL } from '../utils/carUtils';
 import { isActiveTransaction, netRevenue } from '../utils/transactions';
+import { toast } from '../utils/toast';
 
 // Kunci tanggal LOKAL (YYYY-MM-DD) — toISOString() memakai UTC dan meleset di WIB.
 const localDateKey = (value) => {
@@ -169,7 +170,7 @@ export default function SalesReports() {
 
   const handleExportCSV = () => {
     if (filtered.length === 0) {
-      alert('Tidak ada data transaksi untuk diekspor!');
+      toast.error('Tidak ada data transaksi untuk diekspor!');
       return;
     }
 

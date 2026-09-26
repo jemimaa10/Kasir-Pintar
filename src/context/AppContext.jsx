@@ -12,6 +12,7 @@ import {
 } from '../data/initialData';
 import { ALL_TAB_IDS, DEFAULT_TAB } from '../data/navigation';
 import { generateTrxCode } from '../utils/formatters';
+import { toast } from '../utils/toast';
 import {
   calcInstallment,
   getCarName,
@@ -229,17 +230,23 @@ export function AppProvider({ children }) {
   // Cart operations
   const addToCart = (product) => {
     if (product.stock <= 0) {
-      alert('Maaf, stok barang ini sedang habis!');
+      toast.error('Maaf, stok barang ini sedang habis!');
+      return;
+    }
+
+    // Batas stok dicek SEBELUM setCart: efek samping (toast) tidak boleh ada di dalam
+    // updater setState, karena React boleh menjalankan updater lebih dari sekali.
+    const inCart = cart.find(item => item.id === product.id);
+    if (inCart && inCart.qty >= product.stock) {
+      toast.error('Jumlah melebihi stok yang tersedia (' + product.stock + ')');
       return;
     }
 
     setCart(prev => {
       const existing = prev.find(item => item.id === product.id);
       if (existing) {
-        if (existing.qty >= product.stock) {
-          alert('Jumlah melebihi stok yang tersedia (' + product.stock + ')');
-          return prev;
-        }
+        // Penjaga tetap (tanpa efek samping) untuk klik beruntun sebelum render berikutnya
+        if (existing.qty >= product.stock) return prev;
         return prev.map(item => item.id === product.id ? { ...item, qty: item.qty + 1 } : item);
       } else {
         return [...prev, {
@@ -263,7 +270,7 @@ export function AppProvider({ children }) {
     }
     const prod = products.find(p => p.id === productId);
     if (prod && newQty > prod.stock) {
-      alert('Jumlah melebihi sisa stok (' + prod.stock + ')');
+      toast.error('Jumlah melebihi sisa stok (' + prod.stock + ')');
       return;
     }
     setCart(prev => prev.map(item => item.id === productId ? { ...item, qty: newQty } : item));
@@ -547,7 +554,7 @@ export function AppProvider({ children }) {
     const car = cars.find(c => c.id === carId);
     if (!car) return null;
     if (car.status === 'sold') {
-      alert('Mobil ini sudah terjual.');
+      toast.error('Mobil ini sudah terjual.');
       return null;
     }
 
@@ -557,7 +564,7 @@ export function AppProvider({ children }) {
     // itu bisa membuat mobil "terjual" seharga Rp 0. Tolak dan minta cek ulang.
     const rawDiscount = Number(discount);
     if (!Number.isFinite(rawDiscount) || rawDiscount < 0 || rawDiscount >= price) {
-      alert('Diskon tidak valid atau melebihi harga mobil.');
+      toast.error('Diskon tidak valid atau melebihi harga mobil.');
       return null;
     }
     const total = price - rawDiscount;
@@ -566,7 +573,7 @@ export function AppProvider({ children }) {
     if (tradeIn) {
       const rawTradeIn = Number(tradeIn.value);
       if (!Number.isFinite(rawTradeIn) || rawTradeIn < 0 || rawTradeIn > total) {
-        alert('Nilai tukar tambah melebihi total harga mobil.');
+        toast.error('Nilai tukar tambah melebihi total harga mobil.');
         return null;
       }
       tradeInValue = rawTradeIn;
@@ -600,7 +607,7 @@ export function AppProvider({ children }) {
         ? amountDue
         : Number(paidAmount);
       if (!Number.isFinite(rawPaid) || rawPaid < amountDue) {
-        alert('Uang diterima kurang dari sisa yang harus dibayar.');
+        toast.error('Uang diterima kurang dari sisa yang harus dibayar.');
         return null;
       }
       paid = rawPaid;

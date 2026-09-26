@@ -1,5 +1,5 @@
-import React from 'react';
-import { motion, useIsPresent } from 'motion/react';
+import React, { useEffect, useRef } from 'react';
+import { motion, useAnimate, useIsPresent } from 'motion/react';
 import { Heart, MapPin, Gauge, Calendar, Settings2, Fuel, BadgeCheck } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import CarImage from './CarImage';
@@ -18,6 +18,14 @@ const PHOTO_RADIUS = {
   borderBottomRightRadius: 0,
 };
 
+// "Pop" ikon hati — harus identik dengan tombol favorit di CarDetailModal:
+// jadi favorit 1 -> 1.3 -> 1, batal favorit sedikit mengempis 1 -> 0.85 -> 1, ~300 ms.
+// Pegas Motion hanya mendukung 2 keyframe, jadi dipakai keyframe dengan ease-out.
+// null = mulai dari skala saat ini, jadi klik beruntun tidak melompat balik ke 1.
+const HEART_POP_IN = [null, 1.3, 1];
+const HEART_POP_OUT = [null, 0.85, 1];
+const HEART_POP_TRANSITION = { duration: 0.3, times: [0, 0.4, 1], ease: 'easeOut' };
+
 export default function CarCard({ car }) {
   const { openCarDetail, favoriteCarIds, toggleFavoriteCar, storeInfo } = useApp();
   // false saat kartu sedang keluar dari grid (AnimatePresence di CarMarketplace):
@@ -25,6 +33,21 @@ export default function CarCard({ car }) {
   const isPresent = useIsPresent();
 
   const isFavorite = favoriteCarIds.includes(car.id);
+
+  // Hati hanya "pop" saat status favorit benar-benar berubah — tidak saat kartu pertama
+  // kali tampil (termasuk saat grid disaring ulang) maupun saat modal detail dibuka.
+  const [heartScope, animateHeart] = useAnimate();
+  const wasFavorite = useRef(isFavorite);
+  useEffect(() => {
+    if (wasFavorite.current === isFavorite) return;
+    wasFavorite.current = isFavorite;
+    // Animasi baru pada nilai yang sama otomatis menghentikan yang lama, dan useAnimate
+    // menghentikan semuanya saat kartu dilepas, jadi tidak perlu cleanup di sini.
+    if (heartScope.current) {
+      animateHeart(heartScope.current, { scale: isFavorite ? HEART_POP_IN : HEART_POP_OUT }, HEART_POP_TRANSITION);
+    }
+  }, [isFavorite, animateHeart, heartScope]);
+
   const isSold = car.status === 'sold';
   const status = CAR_STATUS[car.status];
   const { monthly } = calcInstallment({
@@ -108,7 +131,9 @@ export default function CarCard({ car }) {
           title={isFavorite ? 'Hapus dari favorit' : 'Simpan ke favorit'}
           className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/60 text-white backdrop-blur transition-colors hover:border-brand-500 hover:bg-brand-600"
         >
-          <Heart className={`h-4 w-4 ${isFavorite ? 'fill-brand-500 text-brand-500' : ''}`} />
+          <span ref={heartScope} className="flex">
+            <Heart className={`h-4 w-4 ${isFavorite ? 'fill-brand-500 text-brand-500' : ''}`} />
+          </span>
         </button>
 
         {car.inspectionScore > 0 && (
